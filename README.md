@@ -1,2 +1,4 @@
 # Crab
-Simple and convenient tool for creating, building and managing projects in C and C++ languages
+## Документация/Documentation
+[RU](https://github.com/atxxxm/Crab/wiki/RU) 
+[EN](https://github.com/atxxxm/Crab/wiki/EN)
