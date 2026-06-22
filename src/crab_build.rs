@@ -440,24 +440,21 @@ impl CrabBuildFunc {
     }
 
     // Функция очистки от hpp и разделения файла на .o и путь
-    fn split_dep(&self, text: &str) -> std::io::Result<[String; 2]> {
-        let config: CrabConfig = load_config(CONFIG.config_file)?;
-        let lang = config.settings.lang;
-
+    fn split_dep(&self, text: &str, lang: &str) -> std::io::Result<[String; 2]> {
         let clean_text = text.trim();
-        
+
         let o = clean_text.split(':').next().unwrap_or("");
         let o_str = o.to_string();
 
         let data_init = clean_text.split(':').nth(1).unwrap_or("");
 
-        
+
         let data_vec: Vec<&str> = if lang == "c" {
             data_init.split_whitespace().filter(|s| !s.is_empty() && s.ends_with(".c")).collect()
         } else {
             data_init.split_whitespace().filter(|s| !s.is_empty() && s.ends_with(".cpp")).collect()
         };
-        
+
         let data = data_vec.join("");
 
         Ok([o_str, data])
@@ -570,14 +567,15 @@ impl CrabBuild {
 
         let compiler = config.settings.compiler;
         let head = config.settings.header_dir;
+        let lang = config.settings.lang;
         let is_head = cbf.is_header()?;
-        
+
 
         if !path_dep.exists() {
             crab_log!("ERROR", "BUILD", "The dependency file was not found: {}", path_dep.display());
             crab_err!(ErrorKind::NotFound, "The dependency file was not found");
         }
-        
+
         let file = fs::File::open(&path_dep)?;
 
         let debug_flags = vec!["-g", "-O0", "-Wall", "-Wextra", "-pedantic"];
@@ -593,7 +591,7 @@ impl CrabBuild {
                 return Ok(());
             }
 
-            let result = cbf.split_dep(line)?;
+            let result = cbf.split_dep(line, &lang)?;
 
             if !result[0].ends_with(".o") {
                 return Ok(());
@@ -823,6 +821,7 @@ impl CrabBuild {
         let compiler = config.settings.compiler;
         let is_head = crb.is_header()?;
         let head = config.settings.header_dir;
+        let lang = config.settings.lang;
 
         if !path_dep.exists() {
             crab_log!("ERROR", "BUILD", "The dependency file was not found: {}", path_dep.display());
@@ -844,7 +843,7 @@ impl CrabBuild {
                 return Ok(());
             }
 
-            let result = crb.split_dep(&line)?;
+            let result = crb.split_dep(line, &lang)?;
 
             if !result[0].ends_with(".o") {
                 return Ok(());
@@ -1112,6 +1111,7 @@ impl CrabLib {
 
         let compiler = config.settings.compiler;
         let head = config.settings.header_dir;
+        let lang = config.settings.lang;
         let is_head = cbf.is_header()?;
         let path_to_dep_file = PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.dependencies);
 
@@ -1119,7 +1119,7 @@ impl CrabLib {
             crab_log!("ERROR", "LIB", "The dependency file was not found: {}", path_to_dep_file.display());
             crab_err!(ErrorKind::NotFound, "The dependency file was not found");
         }
-        
+
         let file = fs::File::open(&path_to_dep_file)?;
 
         let reader = BufReader::new(&file);
@@ -1127,12 +1127,12 @@ impl CrabLib {
 
         lines.par_iter().try_for_each(|line| -> std::io::Result<()> {
             let line = line.trim();
-            
+
             if line.is_empty() {
                 return Ok(());
             }
 
-            let result = cbf.split_dep(line)?;
+            let result = cbf.split_dep(line, &lang)?;
 
             if !result[0].ends_with(".o") {
                 return Ok(());
@@ -1191,6 +1191,7 @@ impl CrabLib {
 
         let compiler = config.settings.compiler;
         let head = config.settings.header_dir;
+        let lang = config.settings.lang;
         let is_head = cbf.is_header()?;
         let path_to_dep_file = PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.dependencies);
 
@@ -1198,7 +1199,7 @@ impl CrabLib {
             crab_log!("ERROR", "LIB", "The dependency file was not found: {}", path_to_dep_file.display());
             crab_err!(ErrorKind::NotFound, "The dependency file was not found");
         }
-        
+
         let file = fs::File::open(&path_to_dep_file)?;
 
         let reader = BufReader::new(&file);
@@ -1206,12 +1207,12 @@ impl CrabLib {
 
         lines.par_iter().try_for_each(|line| -> std::io::Result<()> {
             let line = line.trim();
-            
+
             if line.is_empty() {
                 return Ok(());
             }
 
-            let result = cbf.split_dep(line)?;
+            let result = cbf.split_dep(line, &lang)?;
 
             if !result[0].ends_with(".o") {
                 return Ok(());
