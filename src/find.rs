@@ -87,8 +87,18 @@ impl CrabFind {
 
         let mut include_path: Vec<String> = Vec::new();
         let mut libs_vec: Vec<String> = Vec::new();
-        let include_name = &includes[0].split("/").nth(1).unwrap().replace(['<', '>', ' '], "");
-        let lib_name = &includes[0].split("/").next().unwrap().replace(['<', '>', ' '], "").to_lowercase();
+
+        // includes[0] вида "SDL2/SDL.h" -> lib_name="sdl2", include_name="SDL.h";
+        // для include без "/" (напр. "raylib.h") берём имя файла и его основу
+        let cleaned = includes[0].replace(['<', '>', ' '], "");
+        let include_name = cleaned.rsplit('/').next().unwrap_or(&cleaned).to_string();
+        let lib_name = match cleaned.split_once('/') {
+            Some((pkg, _)) => pkg.to_lowercase(),
+            None => Path::new(&cleaned)
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_lowercase())
+                .unwrap_or_else(|| cleaned.to_lowercase()),
+        };
 
         for path_str in paths_from_config {
             let path_to_lib = Path::new(&path_str);
@@ -99,12 +109,12 @@ impl CrabFind {
                 continue;
             }
 
-            if let Ok(ip) = get_parent_include_dir(path_to_lib, include_name)
+            if let Ok(ip) = get_parent_include_dir(path_to_lib, &include_name)
                 && !ip.is_empty() {
                     include_path.push(ip);
                 }
 
-            get_list_lib(path_to_lib, lib_name, &mut libs_vec)?;
+            get_list_lib(path_to_lib, &lib_name, &mut libs_vec)?;
         }
 
         if include_path.is_empty() && libs_vec.is_empty() {
@@ -172,32 +182,21 @@ impl CrabFind {
         let file = File::open(path)?;
 
         let reader = BufReader::new(file);
-        let mut wait = 0;
 
         for line in reader.lines() {
             let line = line?;
+            let trimmed = line.trim();
 
-            if line.trim().starts_with("#include <") {
-                let without_include = line.split("<").nth(1).filter(|s| !s.is_empty()).unwrap();
-                let incl = without_include.replace([' ', '<', '>'], "");
+            if trimmed.starts_with("#include <")
+                && let Some(raw) = trimmed.split('<').nth(1).filter(|s| !s.is_empty()) {
+                    let incl = raw.replace([' ', '<', '>'], "");
 
-                if !include_vector.contains(&incl) {
-                    crab_log!("INFO", "FIND", "System or third-party libraries: {}", incl);
-                    include_vector.push(incl);
+                    if !incl.is_empty() && !include_vector.contains(&incl) {
+                        crab_log!("INFO", "FIND", "System or third-party libraries: {}", incl);
+                        include_vector.push(incl);
+                    }
                 }
-                
-            } else if line.trim().starts_with("#include") {
-                wait = 0;
-            }
-
-            if wait > 10 {
-                break;
-            }
-
-            wait += 1;
-
         }
-        
 
         Ok(())
     }
@@ -324,36 +323,38 @@ impl CrabFind {
         Ok(())
     }
 
-    // Для флага -I
-    fn find_header(&self, header: &str) -> std::io::Result<String> {
+    // Для флага -I (None, если каталог с заголовком не найден)
+    fn find_header(&self, header: &str) -> std::io::Result<Option<String>> {
         let search_paths = ["./include", "/usr/include", "/usr/local/include", ];
 
         for &path in &search_paths {
             let full_path = Path::new(path).join(header);
 
-            if full_path.exists() {
-                return Ok(full_path.parent().unwrap().display().to_string());
-            }
+            if full_path.exists()
+                && let Some(parent) = full_path.parent() {
+                    return Ok(Some(parent.display().to_string()));
+                }
         }
 
         if let Ok(cpath) = env::var("CPATH") {
             for path in cpath.split(":") {
                 let full_path = Path::new(path).join(header);
-                
-                if full_path.exists() {
-                    return Ok(full_path.parent().unwrap().display().to_string());
-                }
+
+                if full_path.exists()
+                    && let Some(parent) = full_path.parent() {
+                        return Ok(Some(parent.display().to_string()));
+                    }
             }
         }
 
-        Ok("None".to_string())
+        Ok(None)
     }
 
     // Для флага -l
     fn find_library(&self, header: &str) -> std::io::Result<String> {
-        let name_lib = header.split("/").next().unwrap().to_lowercase();
+        let name_lib = header.split('/').next().unwrap_or(header).to_lowercase();
         let mut txt=  String::new();
-        
+
         let lib_prefixes = ["lib", ""];
         let search_path: [&'static str; 4] = ["/usr/lib", "/usr/local/lib", "./lib", "/usr/lib64"];
         let lib_extensions = [".a", ".so"];
@@ -367,23 +368,26 @@ impl CrabFind {
             let dirs = fs::read_dir(sp)?;
             for dir in dirs {
                 let dir = dir?;
+                let path = dir.path();
 
-                if dir.path().is_file() {
+                let Some(file_name_os) = path.file_name() else { continue; };
 
-                    let file_name = dir.path().file_name().unwrap().display().to_string().to_lowercase();
+                if path.is_file() {
+
+                    let fmt_name = file_name_os.to_string_lossy().to_string();
+                    let file_name = fmt_name.to_lowercase();
 
                     for &pr in &lib_prefixes {
                         for &ext in &lib_extensions {
                             let target = format!("{}{}", pr, name_lib);
 
                             if file_name.starts_with(&target) && file_name.ends_with(ext) {
-                                let fmt_name = dir.path().file_name().unwrap().display().to_string();
                                 let fmt_name_2 = if fmt_name.starts_with("lib") {
                                     fmt_name.replace(".a", "").replace("lib", "").replace(".so", "")
                                 } else {
                                     fmt_name.replace(".a", "").replace(".so", "")
                                 };
-                                
+
                                 txt.push_str(&format!("{}\n", fmt_name_2));
                             }
                         }
@@ -484,8 +488,14 @@ impl CrabFind {
         let mut lib_vec: Vec<String> = Vec::new();
 
         for incl_sys in sys_includes {
-            include_vec.push(self.find_header(&incl_sys)?);
-            lib_vec.push(self.find_library(&incl_sys)?);
+            if let Some(header_dir) = self.find_header(&incl_sys)? {
+                include_vec.push(header_dir);
+            }
+
+            let lib = self.find_library(&incl_sys)?;
+            if !lib.trim().is_empty() {
+                lib_vec.push(lib);
+            }
         }
 
         let path_to_data_dir = PathBuf::from(CONFIG.build_dir).join(CONFIG.data_dir);

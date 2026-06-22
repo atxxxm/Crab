@@ -282,7 +282,10 @@ impl CrabBuildFunc {
 
         let path = Path::new(header_dir.as_str());
 
-        if path.exists() && path.is_dir() && fs::read_dir(&header_dir).unwrap().count() > 0 {
+        // каталог существует и в нём есть хотя бы один файл (read_dir может упасть из-за прав — тогда считаем пустым)
+        let has_entries = fs::read_dir(path).map(|mut d| d.next().is_some()).unwrap_or(false);
+
+        if path.is_dir() && has_entries {
             crab_log!("INFO", "BUILD", "The directory {} exists", header_dir);
             return Ok(true)
         }
