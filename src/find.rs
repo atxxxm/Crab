@@ -513,3 +513,28 @@ impl CrabFind {
     }
 
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn delete_sys_include_removes_std_keeps_third_party() {
+        // Логирование по умолчанию выключено, поэтому crab_log! внутри не падает
+        let mut v = vec![
+            "vector".to_string(),
+            "iostream".to_string(),
+            "stdio.h".to_string(),
+            "SDL2/SDL.h".to_string(),
+            "raylib.h".to_string(),
+        ];
+
+        CrabFind::new(".").delete_sys_include(&mut v).unwrap();
+
+        assert!(!v.contains(&"vector".to_string()));
+        assert!(!v.contains(&"iostream".to_string()));
+        assert!(!v.contains(&"stdio.h".to_string()));
+        assert!(v.contains(&"SDL2/SDL.h".to_string()));
+        assert!(v.contains(&"raylib.h".to_string()));
+    }
+}

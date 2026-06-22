@@ -30,6 +30,10 @@ crab module add net && crab build module net\n\n\
 Project home: https://github.com/atxxxm/Crab"
 )]
 struct Cli {
+    /// Write a detailed log to crb/crab.log (also enabled by the CRAB_LOG env var)
+    #[arg(short, long, global = true)]
+    verbose: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -230,6 +234,10 @@ enum Compiler {
 
 pub fn run() -> std::io::Result<()> {
     let cli = Cli::parse();
+
+    if cli.verbose || std::env::var_os("CRAB_LOG").is_some() {
+        crab::log::set_enabled(true);
+    }
 
     match cli.command {
         Commands::New { name, git, lang , cli} => {

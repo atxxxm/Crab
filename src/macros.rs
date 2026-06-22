@@ -33,22 +33,9 @@ macro_rules! crab_print {
 #[macro_export]
 macro_rules! crab_log {
     ($level:expr, $module:expr, $($arg:tt)*) => {{
-        use chrono::Local;
-        use std::fs::OpenOptions;
-        use std::io::Write;
-        use std::path::PathBuf;
-
-        let now = Local::now().format("%d-%m-%Y %H:%M:%S");
-        let msg = format!("|{}| [{}] (Crab::{}) -> {}", now, $level, $module, format!($($arg)*));
-
-        let path_to_log = PathBuf::from($crate::config::CONFIG.build_dir).join($crate::config::CONFIG.log);
-
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path_to_log)
-            .expect("Couldn't open the log file!");
-
-        writeln!(file, "{}", msg).expect("Couldn't write the log to the file!");
+        // Логирование опционально и нефатально: форматируем и пишем только когда включено
+        if $crate::log::is_enabled() {
+            $crate::log::write($level, $module, &format!($($arg)*));
+        }
     }};
 }
