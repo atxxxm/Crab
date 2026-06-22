@@ -14,7 +14,20 @@ use std::io::ErrorKind;
     name = "crab",
     author = "atom",
     version = CONFIG.version,
-    about = "https://github.com/atxxxm/Crab"
+    about = "A build tool for C and C++ projects",
+    long_about = "Crab — a simple build tool for C and C++ projects.\n\n\
+Create projects, build incrementally in debug or release, run the binary \
+or individual modules, build static/dynamic libraries and inspect the \
+#include dependency tree.",
+    propagate_version = true,
+    arg_required_else_help = true,
+    after_help = "Examples:\n  \
+crab new myapp --lang cpp --git\n  \
+crab build              # debug build\n  \
+crab build release\n  \
+crab run -r -- --port 8080\n  \
+crab module add net && crab build module net\n\n\
+Project home: https://github.com/atxxxm/Crab"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -23,166 +36,172 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Create a new project
+    /// Create a new project in a new directory
+    #[command(after_help = "Examples:\n  crab new myapp\n  crab new mylib --lang c --git\n  crab new tool --cli")]
     New {
-        /// Project Name
+        /// Project name (used as the directory name)
+        #[arg(value_name = "NAME")]
         name: String,
 
-        /// Initialize git (flag)
+        /// Initialize a git repository and add a .gitignore
         #[arg(short, long)]
         git: bool,
 
-        /// Project language (c or c++)
-        #[arg(short = 'l', long, value_enum, default_value_t = Lang::Cpp)]
+        /// Project language
+        #[arg(short = 'l', long, value_enum, default_value_t = Lang::Cpp, value_name = "LANG")]
         lang: Lang,
 
-        // CLI template (flag)
+        /// Use the CLI main() template (int argc, char *argv[])
         #[arg(short, long)]
         cli: bool
     },
 
-    /// Initialize the project in the current folder
+    /// Initialize a project in the current folder
     Init,
 
-    /// Build the project
-    #[command(alias = "b")]
+    /// Compile the project (debug by default)
+    #[command(alias = "b", after_help = "Examples:\n  crab build\n  crab build release\n  crab build module net -r\n  crab build lib static")]
     Build {
         #[command(subcommand)]
         action: Option<BuildAction>,
     },
 
-    /// Run binary or module
+    /// Run the compiled binary or a module
+    #[command(after_help = "Examples:\n  crab run\n  crab run -r\n  crab run -m net\n  crab run -- arg1 arg2")]
     Run {
-        /// Run in release mode
+        /// Run the release build instead of debug
         #[arg(long, short = 'r')]
         release: bool,
 
-        /// Run a specific module instead of the main binary
-        #[arg(long)]
+        /// Run the given module instead of the main binary
+        #[arg(long, short = 'm', value_name = "NAME")]
         module: Option<String>,
 
-        /// Arguments to be passed to the binary/module
-        #[arg(trailing_var_arg = true)]
+        /// Arguments forwarded to the program (place them after --)
+        #[arg(trailing_var_arg = true, value_name = "ARGS")]
         args: Vec<String>,
 
-        /// Enable gdb (Flag)
+        /// Forward a --gdb flag to the program
         #[arg(long)]
         gdb: bool,
 
-        /// Enable valgrind (Flag)
+        /// Forward a --valgrind flag to the program
         #[arg(long)]
         valgrind: bool
     },
 
-
-    /// Clear the assembly
-    #[command(alias = "c")]
+    /// Remove build artifacts
+    #[command(alias = "c", after_help = "Examples:\n  crab clean\n  crab clean debug\n  crab clean module net\n  crab clean lib")]
     Clean {
         #[command(subcommand)]
         action: Option<CleanAction>,
-
     },
 
-    /// Work with the configuration file
-    Conf {
-
+    /// View or change project settings
+    #[command(name = "config", visible_alias = "conf")]
+    Config {
         #[command(subcommand)]
         action: ConfAction,
     },
 
-    /// Work with modules
-    #[command(alias = "m")]
+    /// Manage modules (add, remove, build)
+    #[command(alias = "m", after_help = "Examples:\n  crab module add net\n  crab module remove net")]
     Module {
         #[command(subcommand)]
         action: ModuleAction,
     },
 
-    /// Dependency tree
+    /// Print the #include dependency tree
     Tree,
 }
 
 #[derive(Subcommand)]
 enum ConfAction {
-    /// Change the parameter
+    /// Change a setting (language and/or compiler)
+    #[command(after_help = "Examples:\n  crab config set --lang c\n  crab config set --compiler clang")]
     Set {
-        /// Specify the language
-        #[arg(long)]
+        /// Set the project language
+        #[arg(long, value_name = "LANG")]
         lang: Option<Lang>,
 
-        /// Specify the compiler
-        #[arg(long)]
+        /// Set the compiler
+        #[arg(long, value_name = "COMPILER")]
         compiler: Option<Compiler>,
     }
 }
 
 #[derive(Subcommand)]
 enum ModuleAction {
-    /// Add new module
+    /// Add a module from a subdirectory of the source dir
     #[command(alias = "a")]
     Add {
-        /// Module name
+        /// Module name (matches a subdirectory under the source dir)
+        #[arg(value_name = "NAME")]
         name: String,
     },
 
-    /// Remove existing module
+    /// Remove a module and its build artifacts
     #[command(alias = "r")]
     Remove {
         /// Module name
+        #[arg(value_name = "NAME")]
         name: String,
     }
 }
 
 #[derive(Subcommand)]
 enum BuildAction {
-    /// Build project in debug mode (default if no subcommand is given)
+    /// Debug build with warnings and no optimization (default)
     #[command(alias = "d")]
     Debug,
 
-    /// Build project in release mode
+    /// Optimized release build
     #[command(alias = "r")]
     Release,
 
-    /// Build specific module
+    /// Build a specific module
     #[command(alias = "m")]
     Module {
         /// Module name
+        #[arg(value_name = "NAME")]
         name: String,
 
-        /// Release flag (short: -r)
+        /// Build the module in release mode
         #[arg(long, short = 'r')]
         release: bool,
     },
 
-     /// Build library (static or dynamic)
+    /// Build a static or dynamic library
     #[command(alias = "l")]
     Lib {
-        #[arg(value_enum)]
+        #[arg(value_enum, value_name = "MODE")]
         mode: LibMode,
     },
 }
 
 #[derive(Subcommand)]
 enum CleanAction {
-    /// Clear build dir
+    /// Remove the entire build directory (default)
     #[command(alias = "a")]
     All,
 
-    /// Clear the debug directory
+    /// Remove only the debug build
     #[command(alias = "d")]
     Debug,
 
-    /// Clear the release directory
+    /// Remove only the release build
     #[command(alias = "r")]
     Release,
 
-    /// Clear specific module
+    /// Remove a specific module's build
     #[command(alias = "m")]
     Module {
         /// Module name
+        #[arg(value_name = "NAME")]
         name: String,
     },
 
-     /// Clear library (static or dynamic)
+    /// Remove built libraries
     #[command(alias = "l")]
     Lib,
 }
@@ -302,7 +321,7 @@ pub fn run() -> std::io::Result<()> {
             }
         }
 
-        Commands::Conf { action } => match action {
+        Commands::Config { action } => match action {
             ConfAction::Set { lang, compiler} => {
                 if !Path::new(CONFIG.config_file).exists() {
                     crab_err!(ErrorKind::Other, "The current directory is not a project");
