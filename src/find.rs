@@ -104,7 +104,7 @@ impl CrabFind {
             let path_to_lib = Path::new(&path_str);
 
             if !path_to_lib.exists() {
-                crab_log!("WARRNIG", "FIND", "Manual lib path not found: {}", path_str);
+                crab_log!("WARNING", "FIND", "Manual lib path not found: {}", path_str);
                 crab_print!("⚠️ Warning: manual lib path not found: {}", path_str);
                 continue;
             }

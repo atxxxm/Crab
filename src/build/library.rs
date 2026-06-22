@@ -60,7 +60,7 @@ impl CrabLib {
     }
 
     // Компиляция исходников в объектные файлы библиотеки (для динамической добавляется -fPIC)
-    fn compiling_libary(&self, kind: LibKind) -> std::io::Result<()> {
+    fn compiling_library(&self, kind: LibKind) -> std::io::Result<()> {
         crab_log!("INFO", "LIB", "Compilation to an object file");
         let path_to_object_dir = PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(kind.dir()).join(CONFIG.object_dir);
 
@@ -144,7 +144,7 @@ impl CrabLib {
     }
 
     // Создание динамической библиотеки
-    fn create_dynamic_libary(&self) -> std::io::Result<()> {
+    fn create_dynamic_library(&self) -> std::io::Result<()> {
         crab_log!("INFO", "LIB", "Create dynamic library");
         let cbf = CrabBuildFunc::new();
         let config: CrabConfig = load_config(CONFIG.config_file)?;
@@ -213,16 +213,16 @@ impl CrabLib {
         crb.write_dependencies(kind.dir(), &source)?;
 
         println!("\ncompiling to an object file: ");
-        self.compiling_libary(kind)?;
+        self.compiling_library(kind)?;
 
         match kind {
             LibKind::Static => {
-                println!("\ncreate static libary: ");
+                println!("\ncreate static library: ");
                 self.create_archive()?;
             }
             LibKind::Dynamic => {
-                println!("\ncreate dynamic libary: ");
-                self.create_dynamic_libary()?;
+                println!("\ncreate dynamic library: ");
+                self.create_dynamic_library()?;
             }
         }
 

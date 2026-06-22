@@ -229,7 +229,7 @@ impl CrabBuild {
             crab_log!("INFO", "BUILD", "Linking with third-party libraries: {:?}", names);
 
             if !names.is_empty() {
-                println!("\nlibaries:");
+                println!("\nlibraries:");
 
                 for name in &names {
                     crab_print!(green, "+ {}", name);

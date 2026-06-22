@@ -181,7 +181,7 @@ impl CrabBuildFunc {
     pub(crate) fn write_dependencies(&self, flag: &str, cpp: &[String]) -> std::io::Result<()> {
         crab_log!("INFO", "BUILD","Write dependencies");
         let config: CrabConfig = load_config(CONFIG.config_file)?;
-        let complier = config.settings.compiler;
+        let compiler = config.settings.compiler;
 
         let path_to_dependencies_file = if flag == "debug" {
             PathBuf::from(CONFIG.build_dir).join(CONFIG.debug_dir).join(CONFIG.dependencies)
@@ -197,7 +197,7 @@ impl CrabBuildFunc {
 
         crab_log!("INFO", "BUILD", "Collecting dependencies");
         let result: Vec<std::io::Result<Output>> = cpp.par_iter().map(|c| {
-            Command::new(&complier).arg("-MM").arg(c).output()
+            Command::new(&compiler).arg("-MM").arg(c).output()
         }).collect();
 
         crab_log!("INFO", "BUILD", "Writing dependencies to a file: {}", path_to_dependencies_file.display());
@@ -221,7 +221,7 @@ impl CrabBuildFunc {
     pub(crate) fn write_dependencies_module(&self, name: &str, flag: &str, cpp: &[String]) -> std::io::Result<()> {
         crab_log!("INFO", "BUILD","Module: Write dependencies");
         let config: CrabConfig = load_config(CONFIG.config_file)?;
-        let complier = config.settings.compiler;
+        let compiler = config.settings.compiler;
 
         let path_to_dependencies_file = if flag == "debug" {
             PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(name).join(CONFIG.debug_dir).join(CONFIG.dependencies)
@@ -234,7 +234,7 @@ impl CrabBuildFunc {
 
         crab_log!("INFO", "BUILD", "Module: Collecting dependencies");
         let result: Vec<std::io::Result<Output>> = cpp.par_iter().map(|c| {
-            Command::new(&complier).arg("-MM").arg(c).output()
+            Command::new(&compiler).arg("-MM").arg(c).output()
         }).collect();
 
         crab_log!("INFO", "BUILD", "Module: Writing dependencies to a file: {}", path_to_dependencies_file.display());
@@ -415,7 +415,7 @@ impl CrabBuildFunc {
     // Запись файлов из source_dir в файл конфигурации
     pub(crate) fn write_file_in_config(&self, cpp: &[String]) -> std::io::Result<()> {
         if cpp.is_empty() {
-            crab_log!("WARRNIG", "BUILD","Files are missing");
+            crab_log!("WARNING", "BUILD","Files are missing");
             return Ok(());
         }
 
