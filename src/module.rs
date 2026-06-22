@@ -1,6 +1,8 @@
 use std::{fs, path::{Path, PathBuf}};
-use crate::{crab_err, crab_log, crab_print, func::{crab_config::CONFIG, crab_find::CrabFind, crab_ini::{load_config, save_config, CrabConfig, Module}}};
-use crate::crab_build::CrabBuild;
+use crate::config::{load_config, save_config, CrabConfig, Module, CONFIG};
+use crate::find::CrabFind;
+use crate::build::CrabBuild;
+use crate::{crab_err, crab_log, crab_print};
 use std::io::ErrorKind;
 
 

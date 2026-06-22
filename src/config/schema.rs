@@ -51,7 +51,7 @@ pub struct Changed {
 
 
 pub fn load_config<T: DeserializeOwned>(path: &str) -> std::io::Result<T> {
-    let mut file = File::open(&path)?;
+    let mut file = File::open(path)?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
     toml::from_str(&contents).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
@@ -63,29 +63,4 @@ pub fn save_config<T: Serialize>(config: &T, path: &str) -> std::io::Result<()> 
     let mut file = File::create(path)?;
     file.write_all(toml_str.as_bytes())?;
     Ok(())
-}
-
-
-pub struct CrabUpdateINI {
-    file: String,
-}
-
-impl CrabUpdateINI {
-    pub fn new(filename: &str) -> Self {
-        Self { file: filename.to_string() }
-    }
-
-    pub fn update_lang(&self, lang: &str) -> std::io::Result<()> {
-        let mut config: CrabConfig = load_config(&self.file)?;
-        config.settings.lang = lang.to_string();
-        save_config(&config, &self.file)?;
-        Ok(())
-    }
-
-    pub fn update_compiler(&self, compiler: &str) -> std::io::Result<()> {
-        let mut config: CrabConfig = load_config(&self.file)?;
-        config.settings.compiler = compiler.to_string();
-        save_config(&config, &self.file)?;
-        Ok(())
-    }
 }

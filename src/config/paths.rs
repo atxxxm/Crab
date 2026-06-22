@@ -29,12 +29,11 @@ pub const CONFIG: Config = Config {
     dynamic_dir: "dynamic",
     object_dir: "obj",
     binary_dir: "bin",
-    include_file: "Include.include.crb", 
-    lib_file: "Lib.lib.crb", 
+    include_file: "Include.include.crb",
+    lib_file: "Lib.lib.crb",
     object_data: "object_data.o.crb",
     version: "v0.0.1",
     dependencies: "dependencies.d.crb",
     module_dir: "module",
     log: "crab.log",
 };
-

@@ -1,5 +1,6 @@
 use std::{env, fs::{self, File, OpenOptions}, io::{BufRead, BufReader, Write}, path::Path, path::PathBuf};
-use crate::{crab_err, crab_log, crab_print, func::{crab_config::CONFIG, crab_ini::{load_config, CrabConfig}}};
+use crate::config::{load_config, CrabConfig, CONFIG};
+use crate::{crab_err, crab_log, crab_print};
 use std::io::ErrorKind;
 
 pub struct CrabFind {
