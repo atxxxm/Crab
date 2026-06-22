@@ -473,19 +473,19 @@ impl CrabBuild {
 
     /* Функции для дебаг сборки */
 
-    // Чтение и фортматирование файла с путями для стороних библиотек
-    fn read_include_files_and_fmt(&self) -> std::io::Result<String> {
+    // Чтение файла с путями для сторонних библиотек -> список флагов -I (по одному на аргумент)
+    fn read_include_files_and_fmt(&self) -> std::io::Result<Vec<String>> {
         let path = PathBuf::from(CONFIG.build_dir).join(CONFIG.data_dir).join(CONFIG.include_file);
 
         if !path.exists() {
-            return Ok(String::new());
+            return Ok(Vec::new());
         }
 
         let file = File::open(path)?;
 
         let reader = BufReader::new(&file);
 
-        let mut txt = String::new();
+        let mut includes = Vec::new();
 
         for l in reader.lines() {
             let l = l?;
@@ -494,13 +494,10 @@ impl CrabBuild {
                 continue;
             }
 
-            let fmt_txt = format!("-I{} ", l);
-            txt.push_str(&fmt_txt);
+            includes.push(format!("-I{}", l));
         }
 
-        txt.pop();
-
-        Ok(txt)
+        Ok(includes)
     }
 
     // Чтение и фортматирование файла с путями для библиотек  
@@ -584,22 +581,22 @@ impl CrabBuild {
             let path_to_obj = format!("{}/{}", path_obj.display(), result[0]);
             crab_print!(blue, "{} -> {}", &result[1], path_to_obj);
 
-            if is_head && is_find {
-                let incl = self.read_include_files_and_fmt()?;
-                let path_to_head = format!("-I{} {}", head, incl);
-                cbf.output_wrapper(Command::new(&compiler).args(&["-c", &result[1], "-o", &path_to_obj, &path_to_head]).args(&debug_flags).output())
+            let mut compile_args: Vec<String> = vec![
+                "-c".to_string(),
+                result[1].clone(),
+                "-o".to_string(),
+                path_to_obj,
+            ];
 
-            } else if is_head && !is_find {
-                let path_to_head = format!("-I{}", head);
-                cbf.output_wrapper(Command::new(&compiler).args(&["-c", &result[1], "-o", &path_to_obj, &path_to_head]).args(&debug_flags).output())
-
-            } else if is_find && !is_head {
-                let incl = self.read_include_files_and_fmt()?;
-                cbf.output_wrapper(Command::new(&compiler).args(&["-c", &result[1], "-o", &path_to_obj, &incl]).args(&debug_flags).output())
-
-            } else {
-                cbf.output_wrapper(Command::new(&compiler).args(&["-c", &result[1], "-o", &path_to_obj]).args(&debug_flags).output())
+            if is_head {
+                compile_args.push(format!("-I{}", head));
             }
+
+            if is_find {
+                compile_args.extend(self.read_include_files_and_fmt()?);
+            }
+
+            cbf.output_wrapper(Command::new(&compiler).args(&compile_args).args(&debug_flags).output())
 
         })?;
             
@@ -835,23 +832,22 @@ impl CrabBuild {
             let path_to_obj = format!("{}/{}", path_obj.display(), &result[0]);
             crab_print!(blue, "{} -> {}", &result[1], &path_to_obj);
 
-            if is_head && is_find {
-                let incl = self.read_include_files_and_fmt()?;
-                let path_to_head = format!("-I{} {}", head, incl);
-                crb.output_wrapper(Command::new(&compiler).args(&["-c", &result[1], "-o", &path_to_obj, &path_to_head]).args(&release_flags).output())
+            let mut compile_args: Vec<String> = vec![
+                "-c".to_string(),
+                result[1].clone(),
+                "-o".to_string(),
+                path_to_obj,
+            ];
 
-            } 
-            else if is_head && !is_find {
-                let path_to_head = format!("-I{}", head);
-                crb.output_wrapper(Command::new(&compiler).args(&["-c", &result[1], "-o", &path_to_obj, &path_to_head]).args(&release_flags).output())
-
-            } else if is_find && !is_head {
-                let incl = self.read_include_files_and_fmt()?;
-                crb.output_wrapper(Command::new(&compiler).args(&["-c", &result[1], "-o", &path_to_obj, &incl]).args(&release_flags).output())
-
-            } else {
-                crb.output_wrapper(Command::new(&compiler).args(&["-c", &result[1], "-o", &path_to_obj]).args(&release_flags).output())
+            if is_head {
+                compile_args.push(format!("-I{}", head));
             }
+
+            if is_find {
+                compile_args.extend(self.read_include_files_and_fmt()?);
+            }
+
+            crb.output_wrapper(Command::new(&compiler).args(&compile_args).args(&release_flags).output())
 
         })?;
 
