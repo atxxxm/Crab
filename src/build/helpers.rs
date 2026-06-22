@@ -304,11 +304,10 @@ impl CrabBuildFunc {
     }
 
     // Получение списка исходников, которые нужно пересобрать (с учётом изменений заголовков)
-    pub(crate) fn get_changed_files(&self, path_to_obj_data: &Path, path_dep: &Path, cpp: &[String]) -> std::io::Result<Vec<String>> {
+    pub(crate) fn get_changed_files(&self, path_to_obj_data: &Path, path_dep: &Path, cpp: &[String], lang: &str) -> std::io::Result<Vec<String>> {
         crab_log!("INFO", "BUILD", "Checking for file modification");
 
-        let config: CrabConfig = load_config(CONFIG.config_file)?;
-        let deps_map = self.parse_dependencies(path_dep, &config.settings.lang)?;
+        let deps_map = self.parse_dependencies(path_dep, lang)?;
 
         // Снимок прошлого состояния (read-only для сравнения)
         let old: HashMap<String, String> = if path_to_obj_data.exists() {
@@ -601,5 +600,97 @@ mod tests {
         assert!(names.contains("main.o"));
         assert!(names.contains("foo.o"));
         assert_eq!(names.len(), 2);
+    }
+
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::{Duration, SystemTime};
+
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let mut p = std::env::temp_dir();
+        p.push(format!("crab_test_{}_{}_{}", tag, nanos, n));
+        fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    fn set_mtime(path: &Path, secs: u64) {
+        let f = fs::OpenOptions::new().write(true).open(path).unwrap();
+        f.set_modified(UNIX_EPOCH + Duration::from_secs(secs)).unwrap();
+    }
+
+    #[test]
+    fn get_changed_first_run_then_unchanged() {
+        let dir = temp_dir("changed_a");
+        let src = dir.join("a.cpp");
+        fs::write(&src, "int main(){}\n").unwrap();
+        let src_s = src.to_string_lossy().to_string();
+
+        let dep = dir.join("dep.d");
+        fs::write(&dep, format!("a.o: {}\n", src_s)).unwrap();
+
+        set_mtime(&src, 1_000_000_000);
+
+        let obj_data = dir.join("obj_data.crb");
+        let cbf = CrabBuildFunc::new();
+
+        // первый запуск: файла состояния нет -> исходник считается изменённым
+        let changed = cbf
+            .get_changed_files(&obj_data, &dep, std::slice::from_ref(&src_s), "c++")
+            .unwrap();
+        assert_eq!(changed, vec![src_s.clone()]);
+
+        // повторный запуск без изменения mtime -> пересборка не нужна
+        set_mtime(&src, 1_000_000_000);
+        let changed = cbf
+            .get_changed_files(&obj_data, &dep, std::slice::from_ref(&src_s), "c++")
+            .unwrap();
+        assert!(changed.is_empty(), "expected no changes, got {:?}", changed);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn get_changed_detects_header_change() {
+        let dir = temp_dir("changed_b");
+        let src = dir.join("a.cpp");
+        let hdr = dir.join("a.h");
+        fs::write(&src, "int main(){}\n").unwrap();
+        fs::write(&hdr, "#pragma once\n").unwrap();
+        let src_s = src.to_string_lossy().to_string();
+        let hdr_s = hdr.to_string_lossy().to_string();
+
+        let dep = dir.join("dep.d");
+        fs::write(&dep, format!("a.o: {} {}\n", src_s, hdr_s)).unwrap();
+
+        let obj_data = dir.join("obj_data.crb");
+        let cbf = CrabBuildFunc::new();
+
+        set_mtime(&src, 1_000_000_000);
+        set_mtime(&hdr, 1_000_000_000);
+
+        // первый запуск (запоминаем состояние)
+        let _ = cbf
+            .get_changed_files(&obj_data, &dep, std::slice::from_ref(&src_s), "c++")
+            .unwrap();
+
+        // ничего не менялось
+        set_mtime(&src, 1_000_000_000);
+        set_mtime(&hdr, 1_000_000_000);
+        let changed = cbf
+            .get_changed_files(&obj_data, &dep, std::slice::from_ref(&src_s), "c++")
+            .unwrap();
+        assert!(changed.is_empty(), "expected no changes, got {:?}", changed);
+
+        // изменился только заголовок -> исходник должен пересобраться
+        set_mtime(&hdr, 2_000_000_000);
+        let changed = cbf
+            .get_changed_files(&obj_data, &dep, std::slice::from_ref(&src_s), "c++")
+            .unwrap();
+        assert_eq!(changed, vec![src_s.clone()]);
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

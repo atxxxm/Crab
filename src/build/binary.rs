@@ -346,7 +346,7 @@ impl CrabBuild {
         let path_obj = base.join(CONFIG.object_dir);
         let path_obj_data = base.join(CONFIG.object_data);
 
-        let changed = crb.get_changed_files(&path_obj_data, &path_dep, &source)?;
+        let changed = crb.get_changed_files(&path_obj_data, &path_dep, &source, &lang)?;
 
         self.compile_to_object(profile, &path_dep, &path_obj, find, &changed)?;
 
