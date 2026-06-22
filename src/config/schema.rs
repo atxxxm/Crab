@@ -8,9 +8,52 @@ pub struct CrabConfig {
     pub project: Project,
     pub settings: Settings,
     #[serde(default)]
+    pub build: Build,
+    #[serde(default)]
     pub files: HashMap<String, String>,
     pub libraries: Libraries,
     pub module: HashMap<String, Module>,
+}
+
+// Пользовательские параметры сборки (секция [build] в config.toml).
+// Все поля опциональны и добавляются поверх встроенных флагов профиля.
+#[derive(Deserialize, Serialize, Debug, Default)]
+pub struct Build {
+    #[serde(default)]
+    pub standard: String,          // стандарт языка, напр. "c++17" / "c11" -> -std=...
+    #[serde(default)]
+    pub defines: Vec<String>,      // макросы -D, напр. "DEBUG" / "VER=2"
+    #[serde(default)]
+    pub include_dirs: Vec<String>, // дополнительные каталоги заголовков -I
+    #[serde(default)]
+    pub cflags: Vec<String>,       // произвольные флаги компиляции
+    #[serde(default)]
+    pub ldflags: Vec<String>,      // произвольные флаги линковки
+}
+
+impl Build {
+    // Аргументы, добавляемые на этапе компиляции в объектный файл
+    pub fn compile_args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+
+        if !self.standard.trim().is_empty() {
+            args.push(format!("-std={}", self.standard));
+        }
+        for d in &self.defines {
+            args.push(format!("-D{}", d));
+        }
+        for inc in &self.include_dirs {
+            args.push(format!("-I{}", inc));
+        }
+        args.extend(self.cflags.iter().cloned());
+
+        args
+    }
+
+    // Аргументы, добавляемые на этапе линковки
+    pub fn link_args(&self) -> Vec<String> {
+        self.ldflags.clone()
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -63,4 +106,42 @@ pub fn save_config<T: Serialize>(config: &T, path: &str) -> std::io::Result<()> 
     let mut file = File::create(path)?;
     file.write_all(toml_str.as_bytes())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_build_yields_no_args() {
+        let b = Build::default();
+        assert!(b.compile_args().is_empty());
+        assert!(b.link_args().is_empty());
+    }
+
+    #[test]
+    fn build_translates_fields_to_flags() {
+        let b = Build {
+            standard: "c++17".to_string(),
+            defines: vec!["DEBUG".to_string(), "VER=2".to_string()],
+            include_dirs: vec!["third_party/include".to_string()],
+            cflags: vec!["-Wpedantic".to_string()],
+            ldflags: vec!["-lpthread".to_string()],
+        };
+
+        assert_eq!(
+            b.compile_args(),
+            vec!["-std=c++17", "-DDEBUG", "-DVER=2", "-Ithird_party/include", "-Wpedantic"]
+        );
+        assert_eq!(b.link_args(), vec!["-lpthread"]);
+    }
+
+    #[test]
+    fn blank_standard_is_skipped() {
+        let b = Build {
+            standard: "   ".to_string(),
+            ..Default::default()
+        };
+        assert!(b.compile_args().is_empty());
+    }
 }

@@ -77,6 +77,7 @@ impl CrabLib {
         let lang = config.settings.lang;
         let is_head = cbf.is_header()?;
         let is_dynamic = matches!(kind, LibKind::Dynamic);
+        let user_compile = config.build.compile_args();
         let path_to_dep_file = PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.dependencies);
 
         if !path_to_dep_file.exists() {
@@ -114,6 +115,7 @@ impl CrabLib {
             if is_head {
                 args.push(format!("-I{}", head));
             }
+            args.extend(user_compile.iter().cloned());
 
             cbf.output_wrapper(Command::new(&compiler).args(&args).output())
         })?;
@@ -149,6 +151,7 @@ impl CrabLib {
         let cbf = CrabBuildFunc::new();
         let config: CrabConfig = load_config(CONFIG.config_file)?;
         let compiler = config.settings.compiler;
+        let user_link = config.build.link_args();
 
         let path_to_obj = PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.dynamic_dir).join(CONFIG.object_dir);
 
@@ -159,7 +162,7 @@ impl CrabLib {
             let fmt_obj = format!("{}/{}/{}/lib{}.so", CONFIG.build_dir, CONFIG.library_dir, CONFIG.dynamic_dir, filename);
             let entry_str = entry.path().display().to_string();
 
-            cbf.output_wrapper(Command::new(&compiler).args(["-shared", &entry_str, "-o", &fmt_obj]).output())?;
+            cbf.output_wrapper(Command::new(&compiler).args(["-shared", &entry_str, "-o", &fmt_obj]).args(&user_link).output())?;
 
             crab_print!(green, "+ {}", fmt_obj);
         }

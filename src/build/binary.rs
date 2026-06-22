@@ -136,7 +136,8 @@ impl CrabBuild {
         }
 
         let flags = profile.compile_flags();
-        crab_log!("INFO", "BUILD", "Flags for compiling: {:?}", flags);
+        let user_compile = config.build.compile_args();
+        crab_log!("INFO", "BUILD", "Flags for compiling: {:?} {:?}", flags, user_compile);
 
         let file = fs::File::open(path_dep)?;
         let reader = BufReader::new(&file);
@@ -179,7 +180,7 @@ impl CrabBuild {
                 compile_args.extend(self.read_include_files_and_fmt()?);
             }
 
-            cbf.output_wrapper(Command::new(&compiler).args(&compile_args).args(flags).output())
+            cbf.output_wrapper(Command::new(&compiler).args(&compile_args).args(flags).args(&user_compile).output())
         })?;
 
         Ok(())
@@ -211,6 +212,7 @@ impl CrabBuild {
         let compiler = config.settings.compiler;
         let project_name = config.project.name;
         let link_flags = profile.link_flags();
+        let user_link = config.build.link_args();
 
         let path_to_bin = if let (Some(m_name), Some(b_name)) = (mod_name, bin_name) {
             format!("{}/{}/{}/{}/{}/{}", CONFIG.build_dir, CONFIG.module_dir, m_name, profile.dir(), CONFIG.binary_dir, b_name)
@@ -222,7 +224,7 @@ impl CrabBuild {
 
         if !is_find {
             crab_log!("INFO", "BUILD", "Linking without third-party libraries");
-            crb.output_wrapper(Command::new(&compiler).args(&obj_files).arg("-o").arg(&path_to_bin).args(link_flags).output())?;
+            crb.output_wrapper(Command::new(&compiler).args(&obj_files).arg("-o").arg(&path_to_bin).args(link_flags).args(&user_link).output())?;
         } else {
             let (paths, names) = self.read_lib_path_and_fmt()?;
 
@@ -235,7 +237,7 @@ impl CrabBuild {
                     crab_print!(green, "+ {}", name);
                 }
             }
-            crb.output_wrapper(Command::new(&compiler).args(&obj_files).arg("-o").arg(&path_to_bin).args(link_flags).args(paths).args(names).output())?;
+            crb.output_wrapper(Command::new(&compiler).args(&obj_files).arg("-o").arg(&path_to_bin).args(link_flags).args(paths).args(names).args(&user_link).output())?;
         }
 
         if out.len() > 1 {

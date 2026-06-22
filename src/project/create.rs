@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use chrono::{Datelike, Utc};
 use std::process::{Command, Stdio};
 
-use crate::config::{save_config, CrabConfig, Libraries, Project, Settings, CONFIG};
+use crate::config::{save_config, Build, CrabConfig, Libraries, Project, Settings, CONFIG};
 use crate::find::CrabFind;
 use crate::{crab_err, crab_print};
 use std::io::{ErrorKind, Write};
@@ -82,6 +82,8 @@ impl CrabProject {
                 source_dir: "src".to_string(),
                 header_dir: "include".to_string(),
             },
+
+            build: Build::default(),
 
             files: if is_new {
                 let mut files = HashMap::new();
