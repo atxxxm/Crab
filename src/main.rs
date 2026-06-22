@@ -210,7 +210,7 @@ enum Lang {
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 enum Compiler {
-    Gcui,
+    Gcc,
     Gpp,
     Clang,
 }
@@ -326,7 +326,7 @@ fn main() -> std::io::Result<()> {
 
                 if let Some(compiler) = compiler {
                     let compiler_str = match compiler {
-                        Compiler::Gcui => "gcui",
+                        Compiler::Gcc => "gcc",
                         Compiler::Gpp => "g++",
                         Compiler::Clang => "clang"
                     };
