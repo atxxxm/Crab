@@ -379,3 +379,38 @@ fn is_valid_project_name(name: &str) -> bool {
         && !name.starts_with('-')
         && name.len() <= 50
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_simple_names() {
+        assert!(is_valid_project_name("myapp"));
+        assert!(is_valid_project_name("my_app-2"));
+        assert!(is_valid_project_name("App123"));
+    }
+
+    #[test]
+    fn rejects_empty() {
+        assert!(!is_valid_project_name(""));
+    }
+
+    #[test]
+    fn rejects_leading_dash() {
+        assert!(!is_valid_project_name("-foo"));
+    }
+
+    #[test]
+    fn rejects_path_separators_and_specials() {
+        assert!(!is_valid_project_name("a/b"));
+        assert!(!is_valid_project_name("a b"));
+        assert!(!is_valid_project_name("a.b"));
+    }
+
+    #[test]
+    fn respects_length_limit() {
+        assert!(is_valid_project_name(&"a".repeat(50)));
+        assert!(!is_valid_project_name(&"a".repeat(51)));
+    }
+}

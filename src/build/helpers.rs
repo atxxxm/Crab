@@ -295,37 +295,12 @@ impl CrabBuildFunc {
 
     // Парсинг .d файла: исходник -> список всех его зависимостей (сам исходник + заголовки)
     fn parse_dependencies(&self, path_dep: &Path, lang: &str) -> std::io::Result<HashMap<String, Vec<String>>> {
-        let mut map: HashMap<String, Vec<String>> = HashMap::new();
-
         if !path_dep.exists() {
-            return Ok(map);
+            return Ok(HashMap::new());
         }
 
-        let ext = if lang == "c" { ".c" } else { ".cpp" };
         let content = fs::read_to_string(path_dep)?;
-        // Склеиваем переносы строк вида "... \<newline>" в одну запись
-        let joined = content.replace("\\\r\n", " ").replace("\\\n", " ");
-
-        for entry in joined.lines() {
-            let entry = entry.trim();
-            if entry.is_empty() {
-                continue;
-            }
-
-            let rhs = match entry.split_once(':') {
-                Some((target, rhs)) if target.trim().ends_with(".o") => rhs,
-                _ => continue,
-            };
-
-            let prereqs: Vec<String> = rhs.split_whitespace().map(|s| s.to_string()).collect();
-
-            // Исходник — это зависимость с нужным расширением, по ней и индексируем
-            if let Some(src) = prereqs.iter().find(|p| p.ends_with(ext)) {
-                map.entry(src.clone()).or_default().extend(prereqs.iter().cloned());
-            }
-        }
-
-        Ok(map)
+        Ok(parse_dependencies_content(&content, lang))
     }
 
     // Получение списка исходников, которые нужно пересобрать (с учётом изменений заголовков)
@@ -484,4 +459,98 @@ impl CrabBuildFunc {
         Ok(())
     }
 
+}
+
+// Чистый парсер содержимого .d файла (вынесен из parse_dependencies для тестируемости):
+// исходник -> [сам исходник + все его заголовки]
+fn parse_dependencies_content(content: &str, lang: &str) -> HashMap<String, Vec<String>> {
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    let ext = if lang == "c" { ".c" } else { ".cpp" };
+
+    // Склеиваем переносы строк вида "... \<newline>" в одну запись
+    let joined = content.replace("\\\r\n", " ").replace("\\\n", " ");
+
+    for entry in joined.lines() {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+
+        let rhs = match entry.split_once(':') {
+            Some((target, rhs)) if target.trim().ends_with(".o") => rhs,
+            _ => continue,
+        };
+
+        let prereqs: Vec<String> = rhs.split_whitespace().map(|s| s.to_string()).collect();
+
+        // Исходник — это зависимость с нужным расширением, по ней и индексируем
+        if let Some(src) = prereqs.iter().find(|p| p.ends_with(ext)) {
+            map.entry(src.clone()).or_default().extend(prereqs.iter().cloned());
+        }
+    }
+
+    map
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_dep_extracts_object_and_source_cpp() {
+        let res = CrabBuildFunc::new()
+            .split_dep("main.o: src/main.cpp include/foo.h", "c++")
+            .unwrap();
+        assert_eq!(res[0], "main.o");
+        assert_eq!(res[1], "src/main.cpp");
+    }
+
+    #[test]
+    fn split_dep_picks_c_source_for_c_lang() {
+        let res = CrabBuildFunc::new()
+            .split_dep("main.o: src/main.c include/foo.h", "c")
+            .unwrap();
+        assert_eq!(res[0], "main.o");
+        assert_eq!(res[1], "src/main.c");
+    }
+
+    #[test]
+    fn split_dep_non_target_line_has_no_object() {
+        // строка-продолжение без ".o:" не должна распознаваться как объект
+        let res = CrabBuildFunc::new().split_dep("include/b.h", "c++").unwrap();
+        assert!(!res[0].ends_with(".o"));
+    }
+
+    #[test]
+    fn parse_deps_maps_source_to_all_prereqs() {
+        let content = "main.o: src/main.cpp include/a.h include/b.h\n";
+        let map = parse_dependencies_content(content, "c++");
+        let deps = map.get("src/main.cpp").expect("source should be a key");
+        assert!(deps.contains(&"include/a.h".to_string()));
+        assert!(deps.contains(&"include/b.h".to_string()));
+        assert!(deps.contains(&"src/main.cpp".to_string()));
+    }
+
+    #[test]
+    fn parse_deps_joins_backslash_line_continuations() {
+        let content = "main.o: src/main.cpp \\\n include/a.h\n";
+        let map = parse_dependencies_content(content, "c++");
+        let deps = map.get("src/main.cpp").expect("source should be a key");
+        assert!(deps.contains(&"include/a.h".to_string()));
+    }
+
+    #[test]
+    fn parse_deps_ignores_non_object_targets() {
+        let content = "something else without colon target\n";
+        let map = parse_dependencies_content(content, "c++");
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn parse_deps_respects_c_extension() {
+        let content = "main.o: src/main.c include/a.h\n";
+        let map = parse_dependencies_content(content, "c");
+        assert!(map.contains_key("src/main.c"));
+        assert!(!map.contains_key("include/a.h"));
+    }
 }
