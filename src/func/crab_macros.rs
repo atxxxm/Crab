@@ -41,7 +41,7 @@ macro_rules! crab_log {
         let now = Local::now().format("%d-%m-%Y %H:%M:%S");
         let msg = format!("|{}| [{}] (Crab::{}) -> {}", now, $level, $module, format!($($arg)*));
 
-        let path_to_log = PathBuf::from(crate::func::crab_config::CONFIG.build_dir).join(crate::func::crab_config::CONFIG.log);
+        let path_to_log = PathBuf::from($crate::func::crab_config::CONFIG.build_dir).join($crate::func::crab_config::CONFIG.log);
 
         let mut file = OpenOptions::new()
             .create(true)

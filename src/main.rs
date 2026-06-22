@@ -2,17 +2,12 @@ use std::path::Path;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-mod func;
-mod crab_project;
-mod crab_build;
-
+use crab::crab_err;
 use crab::crab_module::CrabModule;
 use crab::func::crab_config::CONFIG;
-use crab::crab_project::{CrabProject, CrabClean, CrabRun};
-use crab::crab_build::{CrabBuild};
-use crate::crab_build::CrabLib;
-use crate::crab_project::CrabTree;
-use crate::func::crab_ini::{CrabUpdateINI};
+use crab::func::crab_ini::CrabUpdateINI;
+use crab::crab_project::{CrabProject, CrabClean, CrabRun, CrabTree};
+use crab::crab_build::{CrabBuild, CrabLib};
 use std::io::ErrorKind;
 
 #[derive(Parser)]
