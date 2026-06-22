@@ -70,7 +70,7 @@ enum Commands {
         action: Option<BuildAction>,
     },
 
-    /// Run the compiled binary or a module
+    /// Build (if needed) and run the binary or a module
     #[command(after_help = "Examples:\n  crab run\n  crab run -r\n  crab run -m net\n  crab run -- arg1 arg2")]
     Run {
         /// Run the release build instead of debug
@@ -303,8 +303,16 @@ pub fn run() -> std::io::Result<()> {
             let runner = CrabRun::new();
 
             if let Some(module_name) = module {
+                // Собираем модуль перед запуском (инкрементально)
+                CrabModule::new().build_module(&module_name, mode)?;
                 runner.run_module(&module_name, mode, &mut args, gdb, valgrind)?;
             } else {
+                // Собираем проект перед запуском (инкрементально)
+                if release {
+                    CrabBuild::new().release_building(None, None)?;
+                } else {
+                    CrabBuild::new().debug_building(None, None)?;
+                }
                 runner.run(mode, &mut args, gdb, valgrind)?;
             }
         }
