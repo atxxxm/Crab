@@ -22,7 +22,7 @@ impl CrabBuildFunc {
         CrabBuildFunc
     }
 
-    // Проверка на наличие компилятора перед сборкой 
+    // Проверка на наличие компилятора перед сборкой
     fn is_compiler(&self) -> std::io::Result<()>  {
         let config: CrabConfig = load_config(CONFIG.config_file)?;
         let compiler = config.settings.compiler;
@@ -41,7 +41,7 @@ impl CrabBuildFunc {
                 crab_err!(ErrorKind::Other, "Incorrect compiler name or missing compiler: {}", compiler);
             }
 
-        }       
+        }
 
         Ok(())
     }
@@ -175,12 +175,12 @@ impl CrabBuildFunc {
             crab_log!("INFO", "BUILD", "Module: The file does not exist, create: {}", dependencies_file.display());
             fs::File::create(dependencies_file)?;
         }
-        
+
         Ok(())
     }
 
-    // Запись зависимостей 
-    fn write_dependencies(&self, flag: &str, cpp: &Vec<String>) -> std::io::Result<()> {
+    // Запись зависимостей
+    fn write_dependencies(&self, flag: &str, cpp: &[String]) -> std::io::Result<()> {
         crab_log!("INFO", "BUILD","Write dependencies");
         let config: CrabConfig = load_config(CONFIG.config_file)?;
         let complier = config.settings.compiler;
@@ -221,7 +221,7 @@ impl CrabBuildFunc {
     }
 
     // Запись зависимостей для модуля
-    fn write_dependencies_module(&self, name: &str, flag: &str, cpp: &Vec<String>) -> std::io::Result<()> {
+    fn write_dependencies_module(&self, name: &str, flag: &str, cpp: &[String]) -> std::io::Result<()> {
         crab_log!("INFO", "BUILD","Module: Write dependencies");
         let config: CrabConfig = load_config(CONFIG.config_file)?;
         let complier = config.settings.compiler;
@@ -413,7 +413,7 @@ impl CrabBuildFunc {
     }
 
     // Запись файлов из source_dir в файл конфигурации
-    fn write_file_in_config(&self, cpp: &Vec<String>) -> std::io::Result<()> {
+    fn write_file_in_config(&self, cpp: &[String]) -> std::io::Result<()> {
         if cpp.is_empty() {
             crab_log!("WARRNIG", "BUILD","Files are missing");
             return Ok(());
@@ -422,7 +422,7 @@ impl CrabBuildFunc {
         crab_log!("INFO", "BUILD", "Writing files to the configuration");
         let mut config: CrabConfig = load_config(CONFIG.config_file)?;
         let mut files = config.files;
-        
+
         for c in cpp {
             if files.contains_key(c) {
                 continue;
@@ -447,7 +447,6 @@ impl CrabBuildFunc {
         let o_str = o.to_string();
 
         let data_init = clean_text.split(':').nth(1).unwrap_or("");
-
 
         let data_vec: Vec<&str> = if lang == "c" {
             data_init.split_whitespace().filter(|s| !s.is_empty() && s.ends_with(".c")).collect()
@@ -488,14 +487,45 @@ impl CrabBuildFunc {
 
 }
 
+// Профиль сборки: отличаются каталогом и набором флагов компиляции/линковки
+#[derive(Copy, Clone)]
+pub enum BuildProfile {
+    Debug,
+    Release,
+}
+
+impl BuildProfile {
+    // Имя каталога режима ("debug" | "release")
+    fn dir(&self) -> &'static str {
+        match self {
+            BuildProfile::Debug => CONFIG.debug_dir,
+            BuildProfile::Release => CONFIG.release_dir,
+        }
+    }
+
+    // Флаги компиляции в объектный файл
+    fn compile_flags(&self) -> &'static [&'static str] {
+        match self {
+            BuildProfile::Debug => &["-g", "-O0", "-Wall", "-Wextra", "-pedantic"],
+            BuildProfile::Release => &["-O2", "-flto"],
+        }
+    }
+
+    // Флаги линковки
+    fn link_flags(&self) -> &'static [&'static str] {
+        match self {
+            BuildProfile::Debug => &[],
+            BuildProfile::Release => &["-O2", "-flto", "-s"],
+        }
+    }
+}
+
 pub struct CrabBuild;
 
 impl CrabBuild {
     pub fn new() -> Self {
         CrabBuild
     }
-
-    /* Функции для дебаг сборки */
 
     // Чтение файла с путями для сторонних библиотек -> список флагов -I (по одному на аргумент)
     fn read_include_files_and_fmt(&self) -> std::io::Result<Vec<String>> {
@@ -524,14 +554,14 @@ impl CrabBuild {
         Ok(includes)
     }
 
-    // Чтение и фортматирование файла с путями для библиотек  
+    // Чтение и фортматирование файла с путями для библиотек
     fn read_lib_path_and_fmt(&self) -> std::io::Result<(Vec<String>, Vec<String>)> {
         let path_to_file = PathBuf::from(CONFIG.build_dir).join(CONFIG.data_dir).join(CONFIG.lib_file);
 
         if !path_to_file.exists() {
             return Ok((Vec::new(), Vec::new()));
         }
-        
+
         let file = File::open(path_to_file)?;
 
         let reader = BufReader::new(&file);
@@ -546,7 +576,7 @@ impl CrabBuild {
             }
 
             let init_path = Path::new(&line);
-            let path = format!("-L{}", init_path.parent().unwrap().display().to_string());
+            let path = format!("-L{}", init_path.parent().unwrap().display());
 
             let file_name = init_path.file_stem().unwrap().to_str().unwrap();
             let clean_name = file_name.strip_prefix("lib").unwrap_or(file_name);
@@ -559,9 +589,9 @@ impl CrabBuild {
         Ok((lib_path, lib_name))
     }
 
-    // Компиляция в объектный файл (Дебаг)
-    fn debug_complinig_to_object_file(&self, path_dep: &PathBuf, path_obj: &PathBuf, is_find: bool, changed: &[String]) -> std::io::Result<()> {
-        crab_log!("INFO", "BUILD", "Debug compilation to an object file");
+    // Компиляция исходников в объектные файлы (debug/release)
+    fn compile_to_object(&self, profile: BuildProfile, path_dep: &Path, path_obj: &Path, is_find: bool, changed: &[String]) -> std::io::Result<()> {
+        crab_log!("INFO", "BUILD", "Compilation to an object file");
         let config: CrabConfig = load_config(CONFIG.config_file)?;
         let cbf = CrabBuildFunc::new();
 
@@ -570,23 +600,21 @@ impl CrabBuild {
         let lang = config.settings.lang;
         let is_head = cbf.is_header()?;
 
-
         if !path_dep.exists() {
             crab_log!("ERROR", "BUILD", "The dependency file was not found: {}", path_dep.display());
             crab_err!(ErrorKind::NotFound, "The dependency file was not found");
         }
 
-        let file = fs::File::open(&path_dep)?;
+        let flags = profile.compile_flags();
+        crab_log!("INFO", "BUILD", "Flags for compiling: {:?}", flags);
 
-        let debug_flags = vec!["-g", "-O0", "-Wall", "-Wextra", "-pedantic"];
-        crab_log!("INFO", "BUILD", "Flags for debug compiling: {:?}", debug_flags);
-
+        let file = fs::File::open(path_dep)?;
         let reader = BufReader::new(&file);
         let lines: Vec<String> = reader.lines().collect::<std::io::Result<Vec<_>>>()?;
 
         lines.par_iter().try_for_each(|line| -> std::io::Result<()> {
             let line = line.trim();
-            
+
             if line.is_empty() {
                 return Ok(());
             }
@@ -621,17 +649,15 @@ impl CrabBuild {
                 compile_args.extend(self.read_include_files_and_fmt()?);
             }
 
-            cbf.output_wrapper(Command::new(&compiler).args(&compile_args).args(&debug_flags).output())
-
+            cbf.output_wrapper(Command::new(&compiler).args(&compile_args).args(flags).output())
         })?;
-            
 
         Ok(())
     }
 
-    // Линковка объектных файлов
-    fn debug_linking(&self, path_obj: &PathBuf, is_find: bool, mod_name: Option<&str>, bin_name: Option<&str>) -> std::io::Result<()> {
-        crab_log!("INFO", "BUILD", "Debug linking");
+    // Линковка объектных файлов в исполняемый
+    fn linking(&self, profile: BuildProfile, path_obj: &Path, is_find: bool, mod_name: Option<&str>, bin_name: Option<&str>) -> std::io::Result<()> {
+        crab_log!("INFO", "BUILD", "Linking");
         if !path_obj.exists() {
             crab_log!("ERROR", "BUILD", "The directory with the object files was not found: {}", path_obj.display());
             crab_err!(ErrorKind::NotFound, "The directory with the object files was not found: {}", path_obj.display());
@@ -642,29 +668,31 @@ impl CrabBuild {
 
         let crb = CrabBuildFunc::new();
 
-        for entry in fs::read_dir(&path_obj)? {
+        for entry in fs::read_dir(path_obj)? {
             let entry = entry?;
 
             if entry.metadata()?.is_file() {
                 obj_files.push(entry.path().display().to_string());
-                out.push_str(&format!("{} + ", entry.file_name().display().to_string()));
+                out.push_str(&format!("{} + ", entry.file_name().display()));
             }
         }
-        
+
         let config: CrabConfig = load_config(CONFIG.config_file)?;
         let compiler = config.settings.compiler;
         let project_name = config.project.name;
-        let path_to_bin = if let (Some(m_name), Some(b_name)) = (mod_name, bin_name)  {
-            format!("{}/{}/{}/{}/{}/{}", CONFIG.build_dir, CONFIG.module_dir, m_name, CONFIG.debug_dir, CONFIG.binary_dir, b_name)
+        let link_flags = profile.link_flags();
+
+        let path_to_bin = if let (Some(m_name), Some(b_name)) = (mod_name, bin_name) {
+            format!("{}/{}/{}/{}/{}/{}", CONFIG.build_dir, CONFIG.module_dir, m_name, profile.dir(), CONFIG.binary_dir, b_name)
         } else {
-            format!("{}/{}/{}/{}", CONFIG.build_dir, CONFIG.debug_dir, CONFIG.binary_dir, project_name)
+            format!("{}/{}/{}/{}", CONFIG.build_dir, profile.dir(), CONFIG.binary_dir, project_name)
         };
-        
+
         crab_log!("INFO", "BUILD", "Creating a path for an executable file: {}", path_to_bin);
 
         if !is_find {
             crab_log!("INFO", "BUILD", "Linking without third-party libraries");
-            crb.output_wrapper(Command::new(&compiler).args(obj_files).arg("-o").arg(&path_to_bin).output())?;
+            crb.output_wrapper(Command::new(&compiler).args(&obj_files).arg("-o").arg(&path_to_bin).args(link_flags).output())?;
         } else {
             let (paths, names) = self.read_lib_path_and_fmt()?;
 
@@ -672,13 +700,13 @@ impl CrabBuild {
 
             if !names.is_empty() {
                 println!("\nlibaries:");
-                
+
                 for name in &names {
                     crab_print!(green, "+ {}", name);
                 }
             }
-            crb.output_wrapper(Command::new(&compiler).args(obj_files).arg("-o").arg(&path_to_bin).args(paths).args(names).output())?;
-        };
+            crb.output_wrapper(Command::new(&compiler).args(&obj_files).arg("-o").arg(&path_to_bin).args(link_flags).args(paths).args(names).output())?;
+        }
 
         if out.len() > 1 {
             out.truncate(out.len() - 2);
@@ -689,61 +717,66 @@ impl CrabBuild {
         } else {
             out.push_str(&format!("-> {}", project_name));
         }
-        
+
         crab_print!(cyan, "{}", out);
 
         Ok(())
     }
 
-    // Дебаг сборка 
-    pub fn debug_building(&self, mod_name: Option<&str>, bin_name: Option<&str>) -> std::io::Result<()> {
+    // Сборка бинарника или модуля в заданном профиле (debug/release)
+    pub fn building(&self, profile: BuildProfile, mod_name: Option<&str>, bin_name: Option<&str>) -> std::io::Result<()> {
         let crb = CrabBuildFunc::new();
 
         crb.is_compiler()?;
 
         let start = Instant::now();
 
-        crab_print!(blue, "DEBUG BUILDING:\n");
-        crab_log!("INFO", "BUILD", "START DEBUG BUILDING");
-
-        if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
-            crb.create_module_dir("debug", m_name)?;
-        } else {
-            crb.create_build_dir("debug")?;
+        match profile {
+            BuildProfile::Debug => { crab_print!(blue, "DEBUG BUILDING:\n"); }
+            BuildProfile::Release => { crab_print!(green, "RELEASE BUILDING:\n"); }
         }
-    
+        crab_log!("INFO", "BUILD", "START {} BUILDING", profile.dir());
+
+        let flag = profile.dir();
+        let is_module = mod_name.is_some() && bin_name.is_some();
+
+        if is_module {
+            crb.create_module_dir(flag, mod_name.unwrap())?;
+        } else {
+            crb.create_build_dir(flag)?;
+        }
+
         let config: CrabConfig = load_config(CONFIG.config_file)?;
         let lang = config.settings.lang;
-
         let source_dir = config.settings.source_dir;
         let path = Path::new(&source_dir);
 
         println!("collecting files: ");
         let mut source: Vec<String>;
 
-        if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
+        if is_module {
+            let m_name = mod_name.unwrap();
             let module = config.module.get(m_name).ok_or_else(|| std::io::Error::new
                 (std::io::ErrorKind::NotFound, format!("Module {} not found", m_name)))?;
-            
+
             source = module.dependencies.clone();
 
             if source.is_empty() {
                 crab_err!(ErrorKind::Other, "No files in module {}!", m_name);
             }
-
         } else {
             source = Vec::new();
             if lang == "c" {
                 CrabBuildFunc::collect_file_with_extension(path, "c", &mut source)?;
             } else {
                 CrabBuildFunc::collect_file_with_extension(path, "cpp", &mut source)?;
-            };
+            }
 
             if source.is_empty() {
                 crab_err!(ErrorKind::NotFound, "There are no files to build!");
             }
         }
-    
+
         crb.write_file_in_config(&source)?;
 
         println!("\nchecking ignored files: ");
@@ -753,17 +786,16 @@ impl CrabBuild {
             crab_err!(ErrorKind::NotFound, "There are no files to build!");
         }
 
-        if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
-            crb.write_dependencies_module(m_name, "debug", &source)?;
+        if is_module {
+            crb.write_dependencies_module(mod_name.unwrap(), flag, &source)?;
         } else {
-            crb.write_dependencies("debug", &source)?;
+            crb.write_dependencies(flag, &source)?;
         }
-        
-        
-        let find = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
+
+        let find = if is_module {
+            let m_name = mod_name.unwrap();
             let module = config.module.get(m_name).ok_or_else(|| std::io::Error::new
                 (std::io::ErrorKind::NotFound, format!("Module {} not found", m_name)))?;
-
             let mod_path = module.path.clone();
             CrabFind::new(&mod_path).parsing_include()?
         } else {
@@ -772,297 +804,55 @@ impl CrabBuild {
 
         println!("\ncompiling to an object file: ");
 
-        let path_dep = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(m_name).join(CONFIG.debug_dir).join(CONFIG.dependencies)
+        let base = if is_module {
+            PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(mod_name.unwrap()).join(flag)
         } else {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.debug_dir).join(CONFIG.dependencies)
+            PathBuf::from(CONFIG.build_dir).join(flag)
         };
 
-        let changed = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
-            let p_o = PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(m_name).join(CONFIG.debug_dir).join(CONFIG.object_data);
-            crb.get_changed_files(&p_o, &path_dep, &source)?
-        } else {
-            let p_o= PathBuf::from(CONFIG.build_dir).join(CONFIG.debug_dir).join(CONFIG.object_data);
-            crb.get_changed_files(&p_o, &path_dep, &source)?
-        };
+        let path_dep = base.join(CONFIG.dependencies);
+        let path_obj = base.join(CONFIG.object_dir);
+        let path_obj_data = base.join(CONFIG.object_data);
 
-        let path_obj = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(m_name).join(CONFIG.debug_dir).join(CONFIG.object_dir)
-        } else {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.debug_dir).join(CONFIG.object_dir)
+        let changed = crb.get_changed_files(&path_obj_data, &path_dep, &source)?;
 
-        };
-
-        self.debug_complinig_to_object_file(&path_dep, &path_obj, find, &changed)?;
+        self.compile_to_object(profile, &path_dep, &path_obj, find, &changed)?;
 
         println!("\nlinking: ");
-
-        let path_obj = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(m_name).join(CONFIG.debug_dir).join(CONFIG.object_dir)
-        } else {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.debug_dir).join(CONFIG.object_dir)
-        };
-
-        self.debug_linking(&path_obj, find, mod_name, bin_name)?;
+        self.linking(profile, &path_obj, find, mod_name, bin_name)?;
 
         crab_print!(green, "\nDone! ({:.2} sec)", start.elapsed().as_secs_f64());
-        crab_log!("INFO", "BUILD", "End of the debug build");
+        crab_log!("INFO", "BUILD", "End of the build");
 
         Ok(())
     }
 
-    /* Релиз сборка */
-
-    // Компиляция в объектный файл (Релиз)
-    fn release_complinig_to_object_file(&self, path_dep: &PathBuf, path_obj: &PathBuf, is_find: bool, changed: &[String]) -> std::io::Result<()> {
-        crab_log!("INFO", "BUILD", "Release compilation to an object file");
-        let config: CrabConfig = load_config(CONFIG.config_file)?;
-        let crb = CrabBuildFunc::new();
-        let compiler = config.settings.compiler;
-        let is_head = crb.is_header()?;
-        let head = config.settings.header_dir;
-        let lang = config.settings.lang;
-
-        if !path_dep.exists() {
-            crab_log!("ERROR", "BUILD", "The dependency file was not found: {}", path_dep.display());
-            crab_err!(ErrorKind::NotFound, "The dependency file was not found: {}", path_dep.display());
-        }
-        
-        let release_flags = vec!["-O2", "-flto"];
-        crab_log!("INFO", "BUILD", "Flags for release compiling: {:?}", release_flags);
-
-        let file = File::open(&path_dep)?;
-
-        let reader = BufReader::new(&file);
-        let lines = reader.lines().collect::<std::io::Result<Vec<_>>>()?;
-
-        lines.par_iter().try_for_each(|line| -> std::io::Result<()> {
-            let line = line.trim();
-
-            if line.is_empty() {
-                return Ok(());
-            }
-
-            let result = crb.split_dep(line, &lang)?;
-
-            if !result[0].ends_with(".o") {
-                return Ok(());
-            }
-
-            if !changed.contains(&result[1]) {
-                crab_print!(purple, "Skipping: {} (Has not been changed)", &result[1]);
-                crab_log!("INFO", "BUILD", "Skipping file: {}", &result[1]);
-                return Ok(());
-            }
-
-            let path_to_obj = format!("{}/{}", path_obj.display(), &result[0]);
-            crab_print!(blue, "{} -> {}", &result[1], &path_to_obj);
-
-            let mut compile_args: Vec<String> = vec![
-                "-c".to_string(),
-                result[1].clone(),
-                "-o".to_string(),
-                path_to_obj,
-            ];
-
-            if is_head {
-                compile_args.push(format!("-I{}", head));
-            }
-
-            if is_find {
-                compile_args.extend(self.read_include_files_and_fmt()?);
-            }
-
-            crb.output_wrapper(Command::new(&compiler).args(&compile_args).args(&release_flags).output())
-
-        })?;
-
-        Ok(())
-    }
-
-    // Линковка объектных файлов
-    fn release_linking(&self, path_obj: &PathBuf, is_find: bool, mod_name: Option<&str>, bin_name: Option<&str>) -> std::io::Result<()> {
-        crab_log!("INFO", "BUILD", "Release linking");
-        if !path_obj.exists() {
-            crab_log!("ERROR", "BUILD", "The directory with the object files was not found: {}", path_obj.display());
-            crab_err!(ErrorKind::NotFound, "The directory with the object files was not found: {}", path_obj.display());
-        }
-
-        let mut obj_files = Vec::new();
-        let mut out = String::new();
-
-        let crb = CrabBuildFunc::new();
-
-        for entry in fs::read_dir(&path_obj)? {
-            let entry = entry?;
-
-            if entry.metadata()?.is_file() {
-                obj_files.push(entry.path().display().to_string());
-                out.push_str(&format!("{} + ", entry.file_name().display().to_string()));
-            }
-        }
-
-        let release_flag = vec!["-O2", "-flto", "-s"];
-        
-        let config: CrabConfig = load_config(CONFIG.config_file)?;
-        let compiler = config.settings.compiler;
-        let project_name = config.project.name;
-
-        let path_to_bin = if let (Some(m_name), Some(b_name)) = (mod_name, bin_name) {
-            format!("{}/{}/{}/{}/{}/{}", CONFIG.build_dir, CONFIG.module_dir, m_name, CONFIG.release_dir, CONFIG.binary_dir, b_name)
-        } else {
-            format!("{}/{}/{}/{}", CONFIG.build_dir, CONFIG.release_dir, CONFIG.binary_dir, project_name)
-        };
-
-        crab_log!("INFO", "BUILD", "Creating a path for an executable file: {}", path_to_bin);
-
-        if !is_find {
-            crab_log!("INFO", "BUILD", "Linking without third-party libraries");
-            crb.output_wrapper(Command::new(&compiler).args(obj_files).arg("-o").arg(&path_to_bin).args(release_flag).output())?;
-        } else {
-            let (paths, names) = self.read_lib_path_and_fmt()?;
-
-            crab_log!("INFO", "BUILD", "Linking with third-party libraries: {:?}", names);
-
-            if !names.is_empty() {
-                println!("\nlibaries:");
-                
-                for name in &names {
-                    crab_print!(green, "+ {}", name);
-                }
-            }
-            crb.output_wrapper(Command::new(&compiler).args(obj_files).arg("-o").arg(&path_to_bin).args(release_flag).args(paths).args(names).output())?;
-            
-        };
-
-        if out.len() > 1 {
-            out.truncate(out.len() - 2);
-        }
-
-        if let Some(b_name) = bin_name {
-            out.push_str(&format!("-> {}", b_name));
-        } else {
-            out.push_str(&format!("-> {}", project_name));
-        }
-
-        crab_print!(cyan, "{}", out);
-
-        Ok(())
+    // Дебаг сборка
+    pub fn debug_building(&self, mod_name: Option<&str>, bin_name: Option<&str>) -> std::io::Result<()> {
+        self.building(BuildProfile::Debug, mod_name, bin_name)
     }
 
     // Релиз сборка
     pub fn release_building(&self, mod_name: Option<&str>, bin_name: Option<&str>) -> std::io::Result<()> {
-        
-        let crb = CrabBuildFunc::new();
-
-        crb.is_compiler()?;
-
-        let start = Instant::now();
-
-        crab_print!(green, "RELEASE BUILDING:\n");
-        crab_log!("INFO", "BUILD", "START RELEASE BUILDING");
-
-        if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
-            crb.create_module_dir("release", m_name)?;
-        } else {
-            crb.create_build_dir("release")?;
-        }
-
-        let config: CrabConfig = load_config(CONFIG.config_file)?;
-
-        let source_dir = config.settings.source_dir;
-        let lang = config.settings.lang;
-        let path = Path::new(&source_dir);
-
-        println!("collecting files: ");
-        let mut source: Vec<String>;
-
-        if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
-            let module = config.module.get(m_name).ok_or_else(|| std::io::Error::new
-                (std::io::ErrorKind::NotFound, format!("Module {} not found", m_name)))?;
-            
-            source = module.dependencies.clone();
-
-            if source.is_empty() {
-                crab_err!(ErrorKind::NotFound, "No files in module {}!", m_name);
-            }
-        } else {
-            source = Vec::new();
-            if lang == "c" {
-                CrabBuildFunc::collect_file_with_extension(path, "c", &mut source)?;
-            } else {
-                CrabBuildFunc::collect_file_with_extension(path, "cpp", &mut source)?;
-            };
-
-            if source.is_empty() {
-                crab_err!(ErrorKind::NotFound, "There are no files to build!");
-            }
-        }
-
-        crb.write_file_in_config(&source)?;
-
-        println!("\nchecking ignored files: ");
-        crb.check_ignore_files(&mut source)?;
-
-        if source.is_empty() {
-            crab_err!(ErrorKind::NotFound, "There are no files to build!");
-
-        }
-
-        if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
-            crb.write_dependencies_module(m_name, "release", &source)?;
-        } else {
-            crb.write_dependencies("release", &source)?;
-        }
-        
-        let find = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
-            let module = config.module.get(m_name).ok_or_else(|| std::io::Error::new
-                (std::io::ErrorKind::NotFound, format!("Module {} not found", m_name)))?;
-            let mod_path = module.path.clone();
-            CrabFind::new(&mod_path).parsing_include()?
-        } else {
-            CrabFind::new(".").parsing_include()?
-        };
-
-        println!("\ncompiling to an object file: ");
-
-        let path_dep = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(m_name).join(CONFIG.release_dir).join(CONFIG.dependencies)
-        } else {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.release_dir).join(CONFIG.dependencies)
-        };
-
-        let changed = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
-            let p_o = PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(m_name).join(CONFIG.release_dir).join(CONFIG.object_data);
-            crb.get_changed_files(&p_o, &path_dep, &source)?
-        } else {
-            let p_o= PathBuf::from(CONFIG.build_dir).join(CONFIG.release_dir).join(CONFIG.object_data);
-            crb.get_changed_files(&p_o, &path_dep, &source)?
-        };
-
-        let path_obj = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(m_name).join(CONFIG.release_dir).join(CONFIG.object_dir)
-        } else {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.release_dir).join(CONFIG.object_dir)
-
-        };
-
-        self.release_complinig_to_object_file(&path_dep, &path_obj, find, &changed)?;
-
-        println!("\nlinking: ");
-        let path_obj = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(m_name).join(CONFIG.release_dir).join(CONFIG.object_dir)
-        } else {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.release_dir).join(CONFIG.object_dir)
-        };
-        self.release_linking(&path_obj, find, mod_name, bin_name)?;
-
-        crab_print!(green, "\nDone! ({:.2} sec)", start.elapsed().as_secs_f32());
-        crab_log!("INFO", "BUILD", "End of the release build");
-
-        Ok(())
+        self.building(BuildProfile::Release, mod_name, bin_name)
     }
+}
 
+// Тип библиотеки: статическая или динамическая
+#[derive(Copy, Clone)]
+pub enum LibKind {
+    Static,
+    Dynamic,
+}
+
+impl LibKind {
+    // Имя подкаталога библиотеки ("static" | "dynamic")
+    fn dir(&self) -> &'static str {
+        match self {
+            LibKind::Static => CONFIG.static_dir,
+            LibKind::Dynamic => CONFIG.dynamic_dir,
+        }
+    }
 }
 
 pub struct CrabLib;
@@ -1073,13 +863,8 @@ impl CrabLib {
     }
 
     // Создание директорий для библиотеки
-    fn create_build_lib_dir(&self, flag: &str) -> std::io::Result<()> {
-        let path_to_lib_dir = if flag == "static" {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.static_dir)
-        } else {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.dynamic_dir)
-        };
-
+    fn create_build_lib_dir(&self, kind: LibKind) -> std::io::Result<()> {
+        let path_to_lib_dir = PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(kind.dir());
         let path_to_dep = PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.dependencies);
 
         crab_log!("INFO", "LIB", "Checking the existence of a directory for library: {}", path_to_lib_dir.display());
@@ -1087,99 +872,19 @@ impl CrabLib {
             crab_log!("INFO", "LIB", "The directory does not exist, create: {}", path_to_lib_dir.display());
             fs::create_dir_all(path_to_lib_dir)?;
         }
-        crab_log!("INFO", "BUILD", "Checking for the existence of a dependency file: {}", path_to_dep.display());
+        crab_log!("INFO", "LIB", "Checking for the existence of a dependency file: {}", path_to_dep.display());
         if !path_to_dep.exists() {
-            crab_log!("INFO", "BUILD", "The file does not exist, create: {}", path_to_dep.display());
+            crab_log!("INFO", "LIB", "The file does not exist, create: {}", path_to_dep.display());
             File::create(path_to_dep)?;
         }
 
         Ok(())
     }
 
-    // Компиляция в объектный файл статической бибилиотеки
-    fn compiling_static_libary(&self) -> std::io::Result<()> {
-        crab_log!("INFO", "LIB", "Static compilation to an object file");
-        let path_to_object_dir = PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.static_dir).join(CONFIG.object_dir);
-
-        if !path_to_object_dir.exists() {
-            crab_log!("INFO", "LIB", "There is no directory for the object files. To create: {}", path_to_object_dir.display());
-            fs::create_dir(path_to_object_dir)?;
-        }
-
-        let config: CrabConfig = load_config(CONFIG.config_file)?;
-        let cbf = CrabBuildFunc::new();
-
-        let compiler = config.settings.compiler;
-        let head = config.settings.header_dir;
-        let lang = config.settings.lang;
-        let is_head = cbf.is_header()?;
-        let path_to_dep_file = PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.dependencies);
-
-        if !path_to_dep_file.exists() {
-            crab_log!("ERROR", "LIB", "The dependency file was not found: {}", path_to_dep_file.display());
-            crab_err!(ErrorKind::NotFound, "The dependency file was not found");
-        }
-
-        let file = fs::File::open(&path_to_dep_file)?;
-
-        let reader = BufReader::new(&file);
-        let lines: Vec<String> = reader.lines().collect::<std::io::Result<Vec<_>>>()?;
-
-        lines.par_iter().try_for_each(|line| -> std::io::Result<()> {
-            let line = line.trim();
-
-            if line.is_empty() {
-                return Ok(());
-            }
-
-            let result = cbf.split_dep(line, &lang)?;
-
-            if !result[0].ends_with(".o") {
-                return Ok(());
-            }
-
-            let path_to_obj = format!("{}/{}/{}/{}/{}", CONFIG.build_dir, CONFIG.library_dir, CONFIG.static_dir ,CONFIG.object_dir, result[0]);
-            crab_print!(blue, "{} -> {}", &result[1], &path_to_obj);
-
-            if is_head {
-                let h = format!("-I{}", head);
-                cbf.output_wrapper(Command::new(&compiler).args(&["-c", &result[1], "-o", &path_to_obj, &h]).output())
-            } else {
-                cbf.output_wrapper(Command::new(&compiler).args(&["-c", &result[1], "-o", &path_to_obj]).output())
-            }
-
-        })?;
-
-        Ok(())
-    }
-
-    // Создание архива для статической библиотеки
-    fn create_archive(&self) -> std::io::Result<()> {
-        crab_log!("INFO", "LIB", "Create static library");
-        let cbf = CrabBuildFunc::new();
-
-        let path_to_obj = PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.static_dir).join(CONFIG.object_dir);
-
-
-        for entry in fs::read_dir(path_to_obj)? {
-            let entry = entry?;
-
-            let filename = entry.path().file_stem().unwrap().display().to_string();
-            let fmt_obj = format!("{}/{}/{}/lib{}.a", CONFIG.build_dir, CONFIG.library_dir, CONFIG.static_dir, filename);
-            let entry_str = entry.path().display().to_string();
-
-            cbf.output_wrapper(Command::new("ar").args(&["rcs", &fmt_obj, &entry_str]).output())?;   
-
-            crab_print!(green, "+ {}", fmt_obj);
-        }
-
-        Ok(())
-    }
-
-    // Компиляция с позиционно-независимым кодом (динамическая библиотека)
-    fn compiling_dynamic_libary(&self) -> std::io::Result<()> {
-        crab_log!("INFO", "LIB", "Dynamic compilation to an object file");
-        let path_to_object_dir = PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.dynamic_dir).join(CONFIG.object_dir);
+    // Компиляция исходников в объектные файлы библиотеки (для динамической добавляется -fPIC)
+    fn compiling_libary(&self, kind: LibKind) -> std::io::Result<()> {
+        crab_log!("INFO", "LIB", "Compilation to an object file");
+        let path_to_object_dir = PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(kind.dir()).join(CONFIG.object_dir);
 
         if !path_to_object_dir.exists() {
             crab_log!("INFO", "LIB", "There is no directory for the object files. To create: {}", path_to_object_dir.display());
@@ -1193,6 +898,7 @@ impl CrabLib {
         let head = config.settings.header_dir;
         let lang = config.settings.lang;
         let is_head = cbf.is_header()?;
+        let is_dynamic = matches!(kind, LibKind::Dynamic);
         let path_to_dep_file = PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.dependencies);
 
         if !path_to_dep_file.exists() {
@@ -1201,7 +907,6 @@ impl CrabLib {
         }
 
         let file = fs::File::open(&path_to_dep_file)?;
-
         let reader = BufReader::new(&file);
         let lines: Vec<String> = reader.lines().collect::<std::io::Result<Vec<_>>>()?;
 
@@ -1218,17 +923,44 @@ impl CrabLib {
                 return Ok(());
             }
 
-            let path_to_obj = format!("{}/{}/{}/{}/{}", CONFIG.build_dir, CONFIG.library_dir, CONFIG.dynamic_dir, CONFIG.object_dir, result[0]);
+            let path_to_obj = format!("{}/{}/{}/{}/{}", CONFIG.build_dir, CONFIG.library_dir, kind.dir(), CONFIG.object_dir, result[0]);
             crab_print!(blue, "{} -> {}", &result[1], &path_to_obj);
 
+            let mut args: Vec<String> = vec!["-c".to_string()];
+            if is_dynamic {
+                args.push("-fPIC".to_string());
+            }
+            args.push(result[1].clone());
+            args.push("-o".to_string());
+            args.push(path_to_obj);
             if is_head {
-                let h = format!("-I{}", head);
-                cbf.output_wrapper(Command::new(&compiler).args(&["-c", "-fPIC", &result[1], "-o", &path_to_obj, &h]).output())
-            } else {
-                cbf.output_wrapper(Command::new(&compiler).args(&["-c", "-fPIC", &result[1], "-o", &path_to_obj]).output())
+                args.push(format!("-I{}", head));
             }
 
+            cbf.output_wrapper(Command::new(&compiler).args(&args).output())
         })?;
+
+        Ok(())
+    }
+
+    // Создание архива для статической библиотеки
+    fn create_archive(&self) -> std::io::Result<()> {
+        crab_log!("INFO", "LIB", "Create static library");
+        let cbf = CrabBuildFunc::new();
+
+        let path_to_obj = PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.static_dir).join(CONFIG.object_dir);
+
+        for entry in fs::read_dir(path_to_obj)? {
+            let entry = entry?;
+
+            let filename = entry.path().file_stem().unwrap().display().to_string();
+            let fmt_obj = format!("{}/{}/{}/lib{}.a", CONFIG.build_dir, CONFIG.library_dir, CONFIG.static_dir, filename);
+            let entry_str = entry.path().display().to_string();
+
+            cbf.output_wrapper(Command::new("ar").args(&["rcs", &fmt_obj, &entry_str]).output())?;
+
+            crab_print!(green, "+ {}", fmt_obj);
+        }
 
         Ok(())
     }
@@ -1239,7 +971,7 @@ impl CrabLib {
         let cbf = CrabBuildFunc::new();
         let config: CrabConfig = load_config(CONFIG.config_file)?;
         let compiler = config.settings.compiler;
-        
+
         let path_to_obj = PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.dynamic_dir).join(CONFIG.object_dir);
 
         for entry in fs::read_dir(path_to_obj)? {
@@ -1249,7 +981,7 @@ impl CrabLib {
             let fmt_obj = format!("{}/{}/{}/lib{}.so", CONFIG.build_dir, CONFIG.library_dir, CONFIG.dynamic_dir, filename);
             let entry_str = entry.path().display().to_string();
 
-            cbf.output_wrapper(Command::new(&compiler).args(&["-shared", &entry_str, "-o", &fmt_obj]).output())?;   
+            cbf.output_wrapper(Command::new(&compiler).args(&["-shared", &entry_str, "-o", &fmt_obj]).output())?;
 
             crab_print!(green, "+ {}", fmt_obj);
         }
@@ -1257,22 +989,24 @@ impl CrabLib {
         Ok(())
     }
 
-    // Статическая библиотека
-    pub fn static_lib_build(&self) -> std::io::Result<()> {
+    // Сборка библиотеки (статической или динамической)
+    pub fn build_lib(&self, kind: LibKind) -> std::io::Result<()> {
         let crb = CrabBuildFunc::new();
 
         crb.is_compiler()?;
 
         let start = Instant::now();
 
-        crab_print!(cyan, "STATIC LIBRARY BUILDING:\n");
-        crab_log!("INFO", "LIB", "START STATIC LIBARY BUILDING");
+        match kind {
+            LibKind::Static => { crab_print!(cyan, "STATIC LIBRARY BUILDING:\n"); }
+            LibKind::Dynamic => { crab_print!(purple, "DYNAMIC LIBRARY BUILDING:\n"); }
+        }
+        crab_log!("INFO", "LIB", "START LIBRARY BUILDING");
 
-        self.create_build_lib_dir("static")?;
-    
+        self.create_build_lib_dir(kind)?;
+
         let config: CrabConfig = load_config(CONFIG.config_file)?;
         let lang = config.settings.lang;
-
         let source_dir = config.settings.source_dir;
         let path = Path::new(source_dir.as_str());
 
@@ -1283,7 +1017,7 @@ impl CrabLib {
             CrabBuildFunc::collect_file_with_extension(path, "c", &mut source)?;
         } else {
             CrabBuildFunc::collect_file_with_extension(path, "cpp", &mut source)?;
-        };
+        }
 
         if source.is_empty() {
             crab_err!(ErrorKind::NotFound, "There are no files to build!");
@@ -1292,80 +1026,41 @@ impl CrabLib {
         crb.write_file_in_config(&source)?;
 
         println!("\nchecking ignored files: ");
-        
         crb.check_ignore_files(&mut source)?;
 
         if source.is_empty() {
             crab_err!(ErrorKind::NotFound, "There are no files to build!");
         }
 
-        crb.write_dependencies("static", &source)?;
+        crb.write_dependencies(kind.dir(), &source)?;
 
         println!("\ncompiling to an object file: ");
-        self.compiling_static_libary()?;
+        self.compiling_libary(kind)?;
 
-        println!("\ncreate static libary: ");
-
-        self.create_archive()?;
+        match kind {
+            LibKind::Static => {
+                println!("\ncreate static libary: ");
+                self.create_archive()?;
+            }
+            LibKind::Dynamic => {
+                println!("\ncreate dynamic libary: ");
+                self.create_dynamic_libary()?;
+            }
+        }
 
         crab_print!(green, "\nDone! ({:.2} sec)", start.elapsed().as_secs_f64());
-        crab_log!("INFO", "LIB", "End of the static library build");
+        crab_log!("INFO", "LIB", "End of the library build");
+
         Ok(())
+    }
+
+    // Статическая библиотека
+    pub fn static_lib_build(&self) -> std::io::Result<()> {
+        self.build_lib(LibKind::Static)
     }
 
     // Динамическая библиотека
     pub fn dynamic_lib_build(&self) -> std::io::Result<()> {
-        let crb = CrabBuildFunc::new();
-
-        crb.is_compiler()?;
-
-        let start = Instant::now();
-
-        crab_print!(purple, "DYNAMIC LIBRARY BUILDING:\n");
-
-        self.create_build_lib_dir("dynamic")?;
-    
-        let config: CrabConfig = load_config(CONFIG.config_file)?;
-        let lang = config.settings.lang;
-
-        let source_dir = config.settings.source_dir;
-        let path = Path::new(source_dir.as_str());
-
-        println!("collecting files: ");
-        let mut source: Vec<String> = Vec::new();
-
-        if lang == "c" {
-            CrabBuildFunc::collect_file_with_extension(path, "c", &mut source)?;
-        } else {
-            CrabBuildFunc::collect_file_with_extension(path, "cpp", &mut source)?;
-        };
-
-        if source.is_empty() {
-            crab_err!(ErrorKind::NotFound, "There are no files to build!");
-        }
-
-        crb.write_file_in_config(&source)?;
-
-        println!("\nchecking ignored files: ");
-        
-        crb.check_ignore_files(&mut source)?;
-
-        if source.is_empty() {
-            crab_err!(ErrorKind::NotFound, "There are no files to build!");
-        }
-
-        crb.write_dependencies("dynamic", &source)?;
-
-        println!("\ncompiling to an object file: ");
-        self.compiling_dynamic_libary()?;
-
-        println!("\ncreate dynamic libary: ");
-
-        self.create_dynamic_libary()?;
-
-        crab_print!(green, "\nDone! ({:.2} sec)", start.elapsed().as_secs_f64());
-        crab_log!("INFO", "LIB", "End of the dynamic library build");
-
-        Ok(())
+        self.build_lib(LibKind::Dynamic)
     }
 }
