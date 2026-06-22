@@ -7,6 +7,12 @@ use std::io::ErrorKind;
 
 pub struct CrabClean;
 
+impl Default for CrabClean {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CrabClean {
     pub fn new() -> Self {
         CrabClean

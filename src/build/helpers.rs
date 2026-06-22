@@ -185,11 +185,10 @@ impl CrabBuildFunc {
 
         let path_to_dependencies_file = if flag == "debug" {
             PathBuf::from(CONFIG.build_dir).join(CONFIG.debug_dir).join(CONFIG.dependencies)
-        } else if flag == "release"{
+        } else if flag == "release" {
             PathBuf::from(CONFIG.build_dir).join(CONFIG.release_dir).join(CONFIG.dependencies)
-        } else if flag == "static" {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.dependencies)
         } else {
+            // static / dynamic — общий каталог библиотеки
             PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.dependencies)
         };
 
@@ -263,7 +262,7 @@ impl CrabBuildFunc {
 
             let duration_since_epoch = modified_time
                 .duration_since(UNIX_EPOCH)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                .map_err(std::io::Error::other)?;
 
             let seconds = duration_since_epoch.as_secs();
             let datetime = DateTime::from_timestamp(seconds as i64, 0)
@@ -360,7 +359,7 @@ impl CrabBuildFunc {
                     Err(_) => continue, // зависимость могла исчезнуть — пропускаем
                 };
 
-                if old.get(p).map_or(true, |o| o != &new_time) {
+                if old.get(p) != Some(&new_time) {
                     need_rebuild = true;
                 }
 
@@ -467,13 +466,12 @@ impl CrabBuildFunc {
 
                 if path.is_dir(){
 
-                    if let Some(dir_name) = path.file_name() {
-                        if dir_name != CONFIG.build_dir {
+                    if let Some(dir_name) = path.file_name()
+                        && dir_name != CONFIG.build_dir {
                             Self::collect_file_with_extension(&path, extension, files)?;
                         }
-                    }
 
-                } else if path.extension().map_or(false, |ext| ext == extension) {
+                } else if path.extension().is_some_and(|ext| ext == extension) {
                     crab_print!(green, "{}", path.display());
                     files.push(path.display().to_string());
                 }

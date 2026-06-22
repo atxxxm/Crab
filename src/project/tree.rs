@@ -9,6 +9,12 @@ pub struct CrabTree {
     deps: HashMap<String, Vec<String>>,
 }
 
+impl Default for CrabTree {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CrabTree {
     pub fn new() -> Self {
         Self {
@@ -25,11 +31,10 @@ impl CrabTree {
 
                 if path.is_dir() {
                     self.collect_files(&path, exts, out)?;
-                } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    if exts.iter().any(|x| x.eq_ignore_ascii_case(ext)) {
+                } else if let Some(ext) = path.extension().and_then(|e| e.to_str())
+                    && exts.iter().any(|x| x.eq_ignore_ascii_case(ext)) {
                         out.push(path.to_string_lossy().into_owned());
                     }
-                }
             }
         }
         Ok(())
@@ -59,9 +64,9 @@ impl CrabTree {
                 let line = line?;
                 let line = line.trim();
 
-                if line.starts_with("#include") && line.contains('"') {
-                    if let Some(start) = line.find('"') {
-                        if let Some(end) = line[start + 1..].find('"') {
+                if line.starts_with("#include") && line.contains('"')
+                    && let Some(start) = line.find('"')
+                        && let Some(end) = line[start + 1..].find('"') {
                             let raw = &line[start + 1..start + 1 + end];
                             let base = Path::new(raw).file_name().unwrap().to_string_lossy().into_owned();
 
@@ -71,8 +76,6 @@ impl CrabTree {
                                 includes.push(base);
                             }
                         }
-                    }
-                }
             }
 
             self.deps.insert(f.clone(), includes);

@@ -29,6 +29,12 @@ impl LibKind {
 
 pub struct CrabLib;
 
+impl Default for CrabLib {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CrabLib {
     pub fn new() -> Self {
         CrabLib
@@ -129,7 +135,7 @@ impl CrabLib {
             let fmt_obj = format!("{}/{}/{}/lib{}.a", CONFIG.build_dir, CONFIG.library_dir, CONFIG.static_dir, filename);
             let entry_str = entry.path().display().to_string();
 
-            cbf.output_wrapper(Command::new("ar").args(&["rcs", &fmt_obj, &entry_str]).output())?;
+            cbf.output_wrapper(Command::new("ar").args(["rcs", &fmt_obj, &entry_str]).output())?;
 
             crab_print!(green, "+ {}", fmt_obj);
         }
@@ -153,7 +159,7 @@ impl CrabLib {
             let fmt_obj = format!("{}/{}/{}/lib{}.so", CONFIG.build_dir, CONFIG.library_dir, CONFIG.dynamic_dir, filename);
             let entry_str = entry.path().display().to_string();
 
-            cbf.output_wrapper(Command::new(&compiler).args(&["-shared", &entry_str, "-o", &fmt_obj]).output())?;
+            cbf.output_wrapper(Command::new(&compiler).args(["-shared", &entry_str, "-o", &fmt_obj]).output())?;
 
             crab_print!(green, "+ {}", fmt_obj);
         }

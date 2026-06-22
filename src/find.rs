@@ -28,7 +28,7 @@ impl CrabFind {
     }
 
     // Сборка путей к библиотекам
-    fn collect_manual_libs(&self, includes: &Vec<String>) -> std::io::Result<()> {
+    fn collect_manual_libs(&self, includes: &[String]) -> std::io::Result<()> {
         crab_log!("INFO", "FIND", "The beginning of collecting to the specified libraries");
         let config: CrabConfig = load_config(CONFIG.config_file)?;
         let paths_from_config: Vec<String> = config.libraries.path;
@@ -45,17 +45,15 @@ impl CrabFind {
                     let path = entry.path();
 
                     if path.is_dir() {
-                        if let Ok(found) = get_parent_include_dir(&path, name) {
-                            if !found.is_empty() {
+                        if let Ok(found) = get_parent_include_dir(&path, name)
+                            && !found.is_empty() {
                                 return Ok(found);
                             }
-                        }
-                    } else if let Some(filename) = path.file_name() {
-                        if filename == name {
+                    } else if let Some(filename) = path.file_name()
+                        && filename == name {
                             let parent = path.parent().unwrap().to_string_lossy().to_string();
                             return Ok(parent);
                         }
-                    }
                 }
             }
             Ok(String::new())
@@ -71,18 +69,16 @@ impl CrabFind {
 
                     if path.is_dir() {
                         get_list_lib(&path, lib_name, libs)?;
-                    } else if let Some(ext) = path.extension() {
-                        if ext == "a" || ext == "so" {
+                    } else if let Some(ext) = path.extension()
+                        && (ext == "a" || ext == "so") {
                             for &p in &pref {
-                                if let Some(filename) = path.file_name() {
-                                    if filename.to_string_lossy().starts_with(&format!("{}{}", &p, lib_name)) {
+                                if let Some(filename) = path.file_name()
+                                    && filename.to_string_lossy().starts_with(&format!("{}{}", &p, lib_name)) {
                                         let path_str = path.display().to_string();
                                         libs.push(path_str);
                                     }
-                                }
                             }
                         }
-                    }
                 }
             }
 
@@ -103,11 +99,10 @@ impl CrabFind {
                 continue;
             }
 
-            if let Ok(ip) = get_parent_include_dir(path_to_lib, &include_name) {
-                if !ip.is_empty() {
+            if let Ok(ip) = get_parent_include_dir(path_to_lib, include_name)
+                && !ip.is_empty() {
                     include_path.push(ip);
                 }
-            }
 
             get_list_lib(path_to_lib, lib_name, &mut libs_vec)?;
         }
@@ -161,7 +156,7 @@ impl CrabFind {
                 if path.is_dir() {
                     Self::collect_file_with_extension(&path, extension, files)?;
 
-                } else if path.extension().map_or(false, |ext| ext == extension) {
+                } else if path.extension().is_some_and(|ext| ext == extension) {
                     let path_str = format!("{}", path.display());
                     files.push(path_str);
 

@@ -56,21 +56,17 @@ impl CrabProject {
         let is_compiler = Self::checking_compilers()?;
 
         let compiler = if lang == "c" {
-            if is_compiler[2] == true {
+            if is_compiler[2] {
                 "gcc"
             } else {
                 ""
             }
+        } else if is_compiler[0] {
+            "g++"
+        } else if is_compiler[1] {
+            "clang"
         } else {
-            if is_compiler[0] == true && is_compiler[1] == true {
-                "g++"
-            } else if is_compiler[0] == true {
-                "g++"
-            } else if is_compiler[1] == true {
-                "clang"
-            } else {
-                ""
-            }
+            ""
         };
 
         let config = CrabConfig {
@@ -102,7 +98,7 @@ impl CrabProject {
             module: HashMap::new(),
         };
 
-        save_config(&config, &path_to_config.display().to_string().as_str())?;
+        save_config(&config, path_to_config.display().to_string().as_str())?;
 
         Ok(())
     }
@@ -155,7 +151,7 @@ impl CrabProject {
             if self.is_git() {
                 std::env::set_current_dir(&self.name)?;
                 Command::new("git").arg("init").stdout(Stdio::null()).stderr(Stdio::null()).status()?;
-                fs::write(".gitignore", &format!("{}/", CONFIG.build_dir))?;
+                fs::write(".gitignore", format!("{}/", CONFIG.build_dir))?;
             } else {
                 crab_print!(yellow, "Git is not installed on your computer!");
             }
@@ -205,11 +201,10 @@ impl CrabProject {
 
                 let rel_path = file_path.strip_prefix(root).unwrap_or(file_path);
 
-                if let Some(is_skip) = rel_path.parent() {
-                    if is_skip.to_string_lossy() == skip {
+                if let Some(is_skip) = rel_path.parent()
+                    && is_skip.to_string_lossy() == skip {
                         continue;
                     }
-                }
 
                 let new_path = Path::new(base_dir).join(rel_path);
 
@@ -217,12 +212,9 @@ impl CrabProject {
                     fs::create_dir_all(parent)?;
                 }
 
-                match fs::copy(&file_path, &new_path) {
-                    Ok(_) => {
-                        fs::remove_file(&file_path)?;
-                        remove_empty_parents(&file_path, root)?;
-                    }
-                    Err(_) => (),
+                if fs::copy(file_path, &new_path).is_ok() {
+                    fs::remove_file(file_path)?;
+                    remove_empty_parents(file_path, root)?;
                 }
             }
 
@@ -231,18 +223,18 @@ impl CrabProject {
 
         if !files.is_empty() {
             if !Path::new(&source_dir).exists() {
-                fs::create_dir_all(&source_dir)?;
+                fs::create_dir_all(source_dir)?;
             }
 
-            copy_files(&files, &source_dir, to_path, &source_dir)?;
+            copy_files(&files, source_dir, to_path, source_dir)?;
         }
 
         if !headers.is_empty() {
             if !Path::new(&header_dir).exists() {
-                fs::create_dir_all(&header_dir)?;
+                fs::create_dir_all(header_dir)?;
             }
 
-            copy_files(&headers, &header_dir, to_path, &header_dir)?;
+            copy_files(&headers, header_dir, to_path, header_dir)?;
         }
 
         fs::File::create(CONFIG.config_file)?;
@@ -250,7 +242,7 @@ impl CrabProject {
 
         let cur_dir = std::env::current_dir()?;
 
-        fn is_file(ext: &str, v: &Vec<String>) -> bool {
+        fn is_file(ext: &str, v: &[String]) -> bool {
             v.iter().any(|f| {
                 Path::new(f).extension().and_then(|e| e.to_str()) == Some(ext)
             })

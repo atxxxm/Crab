@@ -46,6 +46,12 @@ impl BuildProfile {
 
 pub struct CrabBuild;
 
+impl Default for CrabBuild {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CrabBuild {
     pub fn new() -> Self {
         CrabBuild

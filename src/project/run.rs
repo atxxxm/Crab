@@ -7,6 +7,12 @@ use std::io::ErrorKind;
 
 pub struct CrabRun;
 
+impl Default for CrabRun {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CrabRun {
     pub fn new() -> Self {
         CrabRun

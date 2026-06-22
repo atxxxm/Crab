@@ -9,6 +9,12 @@ use std::io::ErrorKind;
 
 pub struct CrabModule;
 
+impl Default for CrabModule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CrabModule {
     pub fn new() -> Self {
         CrabModule
@@ -16,7 +22,7 @@ impl CrabModule {
 
     fn search_dir(&self, src: &Path, name: &str) -> std::io::Result<Option<PathBuf>> {
         if src.is_dir() {
-            for entry in fs::read_dir(&src)? {
+            for entry in fs::read_dir(src)? {
                 let entry = entry?;
                 let path = entry.path();
 
