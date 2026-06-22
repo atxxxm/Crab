@@ -195,13 +195,8 @@ impl CrabBuildFunc {
             PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.dependencies)
         };
 
-        crab_log!("INFO", "BUILD","Checking for the existence of a dependency file: {}", path_to_dependencies_file.display());
-        if !path_to_dependencies_file.exists() {
-            crab_log!("INFO", "BUILD","Creating a dependency file: {}", path_to_dependencies_file.display());
-            fs::File::create(&path_to_dependencies_file)?;
-        }
-
-        let mut file = OpenOptions::new().append(true).create(true).open(&path_to_dependencies_file)?;
+        // Перезаписываем файл с нуля, чтобы зависимости не накапливались между сборками
+        let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(&path_to_dependencies_file)?;
 
         crab_log!("INFO", "BUILD", "Collecting dependencies");
         let result: Vec<std::io::Result<Output>> = cpp.par_iter().map(|c| {
@@ -237,13 +232,8 @@ impl CrabBuildFunc {
             PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(name).join(CONFIG.release_dir).join(CONFIG.dependencies)
         };
 
-        crab_log!("INFO", "BUILD","Module: Checking for the existence of a dependency file: {}", path_to_dependencies_file.display());
-        if !path_to_dependencies_file.exists() {
-            crab_log!("INFO", "BUILD","Module: Creating a dependency file: {}", path_to_dependencies_file.display());
-            fs::File::create(&path_to_dependencies_file)?;
-        }
-
-        let mut file = OpenOptions::new().append(true).create(true).open(&path_to_dependencies_file)?;
+        // Перезаписываем файл с нуля, чтобы зависимости не накапливались между сборками
+        let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(&path_to_dependencies_file)?;
 
         crab_log!("INFO", "BUILD", "Module: Collecting dependencies");
         let result: Vec<std::io::Result<Output>> = cpp.par_iter().map(|c| {
@@ -303,52 +293,89 @@ impl CrabBuildFunc {
         Ok(false)
     }
 
-    // Получение изменений в файле
-    fn get_changed_files(&self, path_to_obj_data: &PathBuf, cpp: &[String]) -> std::io::Result<Vec<String>> {
-        let mut changed = Vec::new();
+    // Парсинг .d файла: исходник -> список всех его зависимостей (сам исходник + заголовки)
+    fn parse_dependencies(&self, path_dep: &Path, lang: &str) -> std::io::Result<HashMap<String, Vec<String>>> {
+        let mut map: HashMap<String, Vec<String>> = HashMap::new();
 
-        crab_log!("INFO", "BUILD", "Checking for file modification");
-        if !path_to_obj_data.exists() {
-            crab_log!("INFO", "BUILD", "There is no file for tracking modifications, create: {}", path_to_obj_data.display());
-            fs::File::create(&path_to_obj_data)?;
-            let mut files_changed = HashMap::new();
-            for c in cpp {
-                let time = self.get_file_mtime(c)?;
-                files_changed.insert(c.to_string(), time);
-                changed.push(c.clone());
+        if !path_dep.exists() {
+            return Ok(map);
+        }
+
+        let ext = if lang == "c" { ".c" } else { ".cpp" };
+        let content = fs::read_to_string(path_dep)?;
+        // Склеиваем переносы строк вида "... \<newline>" в одну запись
+        let joined = content.replace("\\\r\n", " ").replace("\\\n", " ");
+
+        for entry in joined.lines() {
+            let entry = entry.trim();
+            if entry.is_empty() {
+                continue;
             }
 
-            let change = Changed {
-                files: files_changed,
+            let rhs = match entry.split_once(':') {
+                Some((target, rhs)) if target.trim().ends_with(".o") => rhs,
+                _ => continue,
             };
 
-            save_config(&change, &path_to_obj_data.display().to_string().as_str())?;
-            crab_log!("INFO", "BUILD", "Modified files: {:?}", changed);
-            return Ok(changed);
+            let prereqs: Vec<String> = rhs.split_whitespace().map(|s| s.to_string()).collect();
+
+            // Исходник — это зависимость с нужным расширением, по ней и индексируем
+            if let Some(src) = prereqs.iter().find(|p| p.ends_with(ext)) {
+                map.entry(src.clone()).or_default().extend(prereqs.iter().cloned());
+            }
         }
 
-        let mut config: Changed = load_config(&path_to_obj_data.display().to_string().as_str())?;
-        let mut hash_file = config.files;
+        Ok(map)
+    }
+
+    // Получение списка исходников, которые нужно пересобрать (с учётом изменений заголовков)
+    fn get_changed_files(&self, path_to_obj_data: &Path, path_dep: &Path, cpp: &[String]) -> std::io::Result<Vec<String>> {
+        crab_log!("INFO", "BUILD", "Checking for file modification");
+
+        let config: CrabConfig = load_config(CONFIG.config_file)?;
+        let deps_map = self.parse_dependencies(path_dep, &config.settings.lang)?;
+
+        // Снимок прошлого состояния (read-only для сравнения)
+        let old: HashMap<String, String> = if path_to_obj_data.exists() {
+            load_config::<Changed>(path_to_obj_data.display().to_string().as_str())?.files
+        } else {
+            crab_log!("INFO", "BUILD", "There is no file for tracking modifications, create: {}", path_to_obj_data.display());
+            fs::File::create(path_to_obj_data)?;
+            HashMap::new()
+        };
+
+        let mut changed = Vec::new();
+        let mut new_state: HashMap<String, String> = HashMap::new();
 
         for c in cpp {
-            let new_time = self.get_file_mtime(c)?;
+            // Все файлы, влияющие на этот исходник: сам исходник + его заголовки из .d
+            let mut prereqs = deps_map.get(c).cloned().unwrap_or_default();
+            if !prereqs.iter().any(|p| p == c) {
+                prereqs.push(c.clone());
+            }
 
-            if !hash_file.contains_key(c) {
-                hash_file.insert(c.to_string(), new_time);
-                changed.push(c.clone());
-                continue;
-            } 
+            let mut need_rebuild = false;
 
-            let old_time = hash_file.get(c).unwrap().to_string();
+            for p in &prereqs {
+                let new_time = match self.get_file_mtime(p) {
+                    Ok(t) => t,
+                    Err(_) => continue, // зависимость могла исчезнуть — пропускаем
+                };
 
-            if old_time != new_time {
-                hash_file.insert(c.to_string(), new_time);
+                if old.get(p).map_or(true, |o| o != &new_time) {
+                    need_rebuild = true;
+                }
+
+                new_state.insert(p.clone(), new_time);
+            }
+
+            if need_rebuild {
                 changed.push(c.clone());
             }
         }
 
-        config.files = hash_file;
-        save_config(&config, &path_to_obj_data.display().to_string().as_str())?;
+        let change = Changed { files: new_state };
+        save_config(&change, path_to_obj_data.display().to_string().as_str())?;
         crab_log!("INFO", "BUILD", "Modified files: {:?}", changed);
         Ok(changed)
     }
@@ -747,18 +774,18 @@ impl CrabBuild {
 
         println!("\ncompiling to an object file: ");
 
-        let changed = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
-            let p_o = PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(m_name).join(CONFIG.debug_dir).join(CONFIG.object_data);
-            crb.get_changed_files(&p_o, &source)?
-        } else {
-            let p_o= PathBuf::from(CONFIG.build_dir).join(CONFIG.debug_dir).join(CONFIG.object_data);
-            crb.get_changed_files(&p_o, &source)?
-        };
-
         let path_dep = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
             PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(m_name).join(CONFIG.debug_dir).join(CONFIG.dependencies)
         } else {
             PathBuf::from(CONFIG.build_dir).join(CONFIG.debug_dir).join(CONFIG.dependencies)
+        };
+
+        let changed = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
+            let p_o = PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(m_name).join(CONFIG.debug_dir).join(CONFIG.object_data);
+            crb.get_changed_files(&p_o, &path_dep, &source)?
+        } else {
+            let p_o= PathBuf::from(CONFIG.build_dir).join(CONFIG.debug_dir).join(CONFIG.object_data);
+            crb.get_changed_files(&p_o, &path_dep, &source)?
         };
 
         let path_obj = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
@@ -1000,18 +1027,18 @@ impl CrabBuild {
 
         println!("\ncompiling to an object file: ");
 
-        let changed = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
-            let p_o = PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(m_name).join(CONFIG.release_dir).join(CONFIG.object_data);
-            crb.get_changed_files(&p_o, &source)?
-        } else {
-            let p_o= PathBuf::from(CONFIG.build_dir).join(CONFIG.release_dir).join(CONFIG.object_data);
-            crb.get_changed_files(&p_o, &source)?
-        };
-
         let path_dep = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
             PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(m_name).join(CONFIG.release_dir).join(CONFIG.dependencies)
         } else {
             PathBuf::from(CONFIG.build_dir).join(CONFIG.release_dir).join(CONFIG.dependencies)
+        };
+
+        let changed = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
+            let p_o = PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(m_name).join(CONFIG.release_dir).join(CONFIG.object_data);
+            crb.get_changed_files(&p_o, &path_dep, &source)?
+        } else {
+            let p_o= PathBuf::from(CONFIG.build_dir).join(CONFIG.release_dir).join(CONFIG.object_data);
+            crb.get_changed_files(&p_o, &path_dep, &source)?
         };
 
         let path_obj = if let (Some(m_name), Some(_)) = (mod_name, bin_name) {
