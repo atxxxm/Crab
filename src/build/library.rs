@@ -218,6 +218,11 @@ impl CrabLib {
         println!("\ncompiling to an object file: ");
         self.compiling_library(kind)?;
 
+        // Убираем .o от удалённых исходников, чтобы они не попали в библиотеку
+        let path_dep = PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(CONFIG.dependencies);
+        let path_obj = PathBuf::from(CONFIG.build_dir).join(CONFIG.library_dir).join(kind.dir()).join(CONFIG.object_dir);
+        crb.prune_orphan_objects(&path_dep, &path_obj)?;
+
         match kind {
             LibKind::Static => {
                 println!("\ncreate static library: ");

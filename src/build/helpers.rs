@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::UNIX_EPOCH;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use regex::Regex;
 
 use chrono::DateTime;
@@ -355,6 +355,35 @@ impl CrabBuildFunc {
         Ok(changed)
     }
 
+    // Удаление осиротевших .o из obj-каталога: объектов, для которых больше нет
+    // цели в текущем .d файле (исходник удалён). Иначе линковка тянула бы их.
+    pub(crate) fn prune_orphan_objects(&self, path_dep: &Path, path_obj: &Path) -> std::io::Result<()> {
+        if !path_dep.exists() || !path_obj.exists() {
+            return Ok(());
+        }
+
+        let content = fs::read_to_string(path_dep)?;
+        let valid = dependency_object_names(&content);
+
+        for entry in fs::read_dir(path_obj)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.extension().is_none_or(|e| e != "o") {
+                continue;
+            }
+
+            if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && !valid.contains(name) {
+                    crab_print!(red, "Removing orphan object: {}", path.display());
+                    crab_log!("INFO", "BUILD", "Removing orphan object: {}", path.display());
+                    let _ = fs::remove_file(&path);
+                }
+        }
+
+        Ok(())
+    }
+
     // Проверка игнорируемых файлов
     pub(crate) fn check_ignore_files(&self, cpp: &mut Vec<String>) -> std::io::Result<()> {
         let config: CrabConfig = load_config(CONFIG.config_file)?;
@@ -492,6 +521,17 @@ fn parse_dependencies_content(content: &str, lang: &str) -> HashMap<String, Vec<
     map
 }
 
+// Имена объектных файлов (цели вида "foo.o:") из содержимого .d файла
+fn dependency_object_names(content: &str) -> HashSet<String> {
+    let joined = content.replace("\\\r\n", " ").replace("\\\n", " ");
+    joined
+        .lines()
+        .filter_map(|l| l.split_once(':'))
+        .map(|(target, _)| target.trim().to_string())
+        .filter(|t| t.ends_with(".o"))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -552,5 +592,14 @@ mod tests {
         let map = parse_dependencies_content(content, "c");
         assert!(map.contains_key("src/main.c"));
         assert!(!map.contains_key("include/a.h"));
+    }
+
+    #[test]
+    fn object_names_collects_only_o_targets() {
+        let content = "main.o: src/main.cpp include/a.h\nfoo.o: src/foo.cpp\n include/b.h\n";
+        let names = dependency_object_names(content);
+        assert!(names.contains("main.o"));
+        assert!(names.contains("foo.o"));
+        assert_eq!(names.len(), 2);
     }
 }

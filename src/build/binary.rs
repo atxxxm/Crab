@@ -350,6 +350,9 @@ impl CrabBuild {
 
         self.compile_to_object(profile, &path_dep, &path_obj, find, &changed)?;
 
+        // Убираем .o от удалённых исходников, чтобы они не попали в линковку
+        crb.prune_orphan_objects(&path_dep, &path_obj)?;
+
         println!("\nlinking: ");
         self.linking(profile, &path_obj, find, mod_name, bin_name)?;
 
