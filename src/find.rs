@@ -1,6 +1,7 @@
+use std::collections::HashSet;
 use std::{env, fs::{self, File, OpenOptions}, io::{BufRead, BufReader, Write}, path::Path, path::PathBuf, process::{Command, Stdio}};
 use crate::config::{load_config, CrabConfig, CONFIG};
-use crate::{crab_err, crab_log, crab_print};
+use crate::{crab_err, crab_log, crab_print, crab_status};
 use std::io::ErrorKind;
 
 pub struct CrabFind {
@@ -399,6 +400,53 @@ impl CrabFind {
         dirs
     }
 
+    // Попытка найти библиотеку через pkg-config.
+    // Возвращает (include_dirs, lib_flags) или None, если пакет не найден / pkg-config недоступен.
+    fn try_pkg_config(&self, pkg_name: &str) -> Option<(Vec<String>, Vec<String>)> {
+        let exists = Command::new("pkg-config")
+            .arg("--exists")
+            .arg(pkg_name)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .ok()?;
+
+        if !exists.success() {
+            return None;
+        }
+
+        let cflags = Command::new("pkg-config")
+            .args(["--cflags", pkg_name])
+            .output()
+            .ok()?;
+
+        let libs = Command::new("pkg-config")
+            .args(["--libs", pkg_name])
+            .output()
+            .ok()?;
+
+        if !cflags.status.success() || !libs.status.success() {
+            return None;
+        }
+
+        let inc_dirs: Vec<String> = String::from_utf8_lossy(&cflags.stdout)
+            .split_whitespace()
+            .filter_map(|f| f.strip_prefix("-I").map(str::to_string))
+            .collect();
+
+        let lib_flags: Vec<String> = String::from_utf8_lossy(&libs.stdout)
+            .split_whitespace()
+            .filter(|f| f.starts_with("-L") || f.starts_with("-l"))
+            .map(str::to_string)
+            .collect();
+
+        if inc_dirs.is_empty() && lib_flags.is_empty() {
+            return None;
+        }
+
+        Some((inc_dirs, lib_flags))
+    }
+
     // Для флага -I (None, если каталог с заголовком не найден)
     fn find_header(&self, header: &str, extra_dirs: &[String]) -> std::io::Result<Option<String>> {
         let base = ["./include", "/usr/include", "/usr/local/include"];
@@ -576,14 +624,47 @@ impl CrabFind {
         let inc_dirs = self.compiler_include_dirs(&compiler, &lang);
         let lib_dirs = self.compiler_library_dirs(&compiler);
 
+        // Каждый пакет проверяем через pkg-config только один раз
+        let mut queried: HashSet<String> = HashSet::new();
+
         for incl_sys in sys_includes {
-            if let Some(header_dir) = self.find_header(&incl_sys, &inc_dirs)? {
-                include_vec.push(header_dir);
+            // Имя пакета = первый компонент пути (#include <SDL2/SDL.h> → "sdl2")
+            // или стем файла (#include <raylib.h> → "raylib")
+            let pkg_name = match incl_sys.split_once('/') {
+                Some((pkg, _)) => pkg.to_lowercase(),
+                None => Path::new(&incl_sys)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_lowercase())
+                    .unwrap_or_else(|| incl_sys.to_lowercase()),
+            };
+
+            if !queried.insert(pkg_name.clone()) {
+                continue; // уже обработали этот пакет
             }
 
-            let lib = self.find_library(&incl_sys, &lib_dirs)?;
-            if !lib.trim().is_empty() {
-                lib_vec.push(lib);
+            if let Some((pkg_incs, pkg_libs)) = self.try_pkg_config(&pkg_name) {
+                crab_log!("INFO", "FIND", "pkg-config found: {}", pkg_name);
+                crab_status!("Detected", "{} via pkg-config", pkg_name);
+                for d in pkg_incs {
+                    if !include_vec.contains(&d) {
+                        include_vec.push(d);
+                    }
+                }
+                for f in pkg_libs {
+                    if !lib_vec.contains(&f) {
+                        lib_vec.push(f);
+                    }
+                }
+            } else {
+                crab_log!("INFO", "FIND", "pkg-config: {} not found, searching compiler dirs", pkg_name);
+                if let Some(header_dir) = self.find_header(&incl_sys, &inc_dirs)?
+                    && !include_vec.contains(&header_dir) {
+                        include_vec.push(header_dir);
+                    }
+                let lib = self.find_library(&incl_sys, &lib_dirs)?;
+                if !lib.trim().is_empty() {
+                    lib_vec.push(lib);
+                }
             }
         }
 

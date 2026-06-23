@@ -84,7 +84,10 @@ impl CrabBuild {
         Ok(includes)
     }
 
-    // Чтение и фортматирование файла с путями для библиотек
+    // Чтение и форматирование файла с путями для библиотек.
+    // Поддерживает два формата строк:
+    //   - сырые флаги "-L/path" и "-lname" (из pkg-config)
+    //   - полные пути к файлам библиотек (из fallback-поиска по dir компилятора)
     fn read_lib_path_and_fmt(&self) -> std::io::Result<(Vec<String>, Vec<String>)> {
         let path_to_file = PathBuf::from(CONFIG.build_dir).join(CONFIG.data_dir).join(CONFIG.lib_file);
 
@@ -100,23 +103,37 @@ impl CrabBuild {
 
         for line in reader.lines() {
             let line = line?;
+            let line = line.trim();
 
-            if line.trim().is_empty() {
+            if line.is_empty() {
                 continue;
             }
 
-            let init_path = Path::new(&line);
-            let Some(parent) = init_path.parent() else { continue; };
-            let Some(file_name) = init_path.file_name().and_then(|n| n.to_str()) else { continue; };
+            if line.starts_with("-L") {
+                let flag = line.to_string();
+                if !lib_path.contains(&flag) {
+                    lib_path.push(flag);
+                }
+            } else if line.starts_with("-l") {
+                let flag = line.to_string();
+                if !lib_name.contains(&flag) {
+                    lib_name.push(flag);
+                }
+            } else {
+                // полный путь к файлу библиотеки (fallback-формат)
+                let init_path = Path::new(line);
+                let Some(parent) = init_path.parent() else { continue; };
+                let Some(file_name) = init_path.file_name().and_then(|n| n.to_str()) else { continue; };
 
-            let path = format!("-L{}", parent.display());
-            let name = format!("-l{}", Self::lib_link_name(file_name));
+                let path = format!("-L{}", parent.display());
+                let name = format!("-l{}", Self::lib_link_name(file_name));
 
-            if !lib_path.contains(&path) {
-                lib_path.push(path);
-            }
-            if !lib_name.contains(&name) {
-                lib_name.push(name);
+                if !lib_path.contains(&path) {
+                    lib_path.push(path);
+                }
+                if !lib_name.contains(&name) {
+                    lib_name.push(name);
+                }
             }
         }
 
