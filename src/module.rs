@@ -2,7 +2,7 @@ use std::{fs, path::{Path, PathBuf}};
 use crate::config::{load_config, save_config, CrabConfig, Module, CONFIG};
 use crate::find::CrabFind;
 use crate::build::CrabBuild;
-use crate::{crab_err, crab_log, crab_print};
+use crate::{crab_err, crab_log, crab_print, crab_status};
 use std::io::ErrorKind;
 
 
@@ -70,7 +70,7 @@ impl CrabModule {
 
             save_config(&config, CONFIG.config_file)?;
 
-            crab_print!(green, "+ module.{}", name);
+            crab_status!("Added", "module {}", name);
 
         } else {
             crab_log!("ERROR", "MODULE", "The directory was not found: {}", name);
@@ -99,7 +99,7 @@ impl CrabModule {
             fs::remove_dir_all(path_to_model)?;
         }
 
-        crab_print!(red, "- module.{}", name);
+        crab_print!(red, "{:>12} module {}", "Removed", name);
 
         crab_log!("INFO", "MODULE", "The removal of the {} module has been completed", name);
 

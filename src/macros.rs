@@ -30,6 +30,14 @@ macro_rules! crab_print {
     };
 }
 
+// Статусная строка в стиле cargo: жирный зелёный глагол, выровненный по правому краю (12)
+#[macro_export]
+macro_rules! crab_status {
+    ($verb:expr, $($arg:tt)*) => {
+        println!("\x1b[1;32m{:>12}\x1b[0m {}", $verb, format!($($arg)*));
+    };
+}
+
 #[macro_export]
 macro_rules! crab_log {
     ($level:expr, $module:expr, $($arg:tt)*) => {{

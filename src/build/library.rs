@@ -6,7 +6,7 @@ use std::time::Instant;
 use rayon::prelude::*;
 
 use crate::config::{load_config, CrabConfig, CONFIG};
-use crate::{crab_err, crab_print, crab_log};
+use crate::{crab_err, crab_log, crab_status};
 use super::helpers::CrabBuildFunc;
 use std::io::ErrorKind;
 
@@ -103,7 +103,7 @@ impl CrabLib {
             }
 
             let path_to_obj = format!("{}/{}/{}/{}/{}", CONFIG.build_dir, CONFIG.library_dir, kind.dir(), CONFIG.object_dir, result[0]);
-            crab_print!(blue, "{} -> {}", &result[1], &path_to_obj);
+            crab_status!("Compiling", "{}", &result[1]);
 
             let mut args: Vec<String> = vec!["-c".to_string()];
             // -fPIC нужен только на Unix; на Windows он бессмысленен и вызывает предупреждение
@@ -135,12 +135,13 @@ impl CrabLib {
             let entry = entry?;
 
             let filename = entry.path().file_stem().unwrap().display().to_string();
-            let fmt_obj = format!("{}/{}/{}/lib{}.a", CONFIG.build_dir, CONFIG.library_dir, CONFIG.static_dir, filename);
+            let lib_file = format!("lib{}.a", filename);
+            let fmt_obj = format!("{}/{}/{}/{}", CONFIG.build_dir, CONFIG.library_dir, CONFIG.static_dir, lib_file);
             let entry_str = entry.path().display().to_string();
 
             cbf.output_wrapper(Command::new("ar").args(["rcs", &fmt_obj, &entry_str]).output())?;
 
-            crab_print!(green, "+ {}", fmt_obj);
+            crab_status!("Archiving", "{}", lib_file);
         }
 
         Ok(())
@@ -167,7 +168,7 @@ impl CrabLib {
 
             cbf.output_wrapper(Command::new(&compiler).args(["-shared", &entry_str, "-o", &fmt_obj]).args(&user_link).output())?;
 
-            crab_print!(green, "+ {}", fmt_obj);
+            crab_status!("Linking", "{}", lib_file);
         }
 
         Ok(())
@@ -181,10 +182,6 @@ impl CrabLib {
 
         let start = Instant::now();
 
-        match kind {
-            LibKind::Static => { crab_print!(cyan, "STATIC LIBRARY BUILDING:\n"); }
-            LibKind::Dynamic => { crab_print!(purple, "DYNAMIC LIBRARY BUILDING:\n"); }
-        }
         crab_log!("INFO", "LIB", "START LIBRARY BUILDING");
 
         self.create_build_lib_dir(kind)?;
@@ -194,7 +191,8 @@ impl CrabLib {
         let source_dir = config.settings.source_dir;
         let path = Path::new(source_dir.as_str());
 
-        println!("collecting files: ");
+        crab_status!("Compiling", "{} [{} library]", config.project.name, kind.dir());
+
         let mut source: Vec<String> = Vec::new();
 
         if lang == "c" {
@@ -209,7 +207,6 @@ impl CrabLib {
 
         crb.write_file_in_config(&source)?;
 
-        println!("\nchecking ignored files: ");
         crb.check_ignore_files(&mut source)?;
 
         if source.is_empty() {
@@ -218,7 +215,6 @@ impl CrabLib {
 
         crb.write_dependencies(kind.dir(), &source)?;
 
-        println!("\ncompiling to an object file: ");
         self.compiling_library(kind)?;
 
         // Убираем .o от удалённых исходников, чтобы они не попали в библиотеку
@@ -227,17 +223,11 @@ impl CrabLib {
         crb.prune_orphan_objects(&path_dep, &path_obj)?;
 
         match kind {
-            LibKind::Static => {
-                println!("\ncreate static library: ");
-                self.create_archive()?;
-            }
-            LibKind::Dynamic => {
-                println!("\ncreate dynamic library: ");
-                self.create_dynamic_library()?;
-            }
+            LibKind::Static => self.create_archive()?,
+            LibKind::Dynamic => self.create_dynamic_library()?,
         }
 
-        crab_print!(green, "\nDone! ({:.2} sec)", start.elapsed().as_secs_f64());
+        crab_status!("Finished", "{} library in {:.2}s", kind.dir(), start.elapsed().as_secs_f64());
         crab_log!("INFO", "LIB", "End of the library build");
 
         Ok(())

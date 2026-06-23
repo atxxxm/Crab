@@ -7,7 +7,7 @@ use rayon::prelude::*;
 
 use crate::config::{load_config, CrabConfig, CONFIG};
 use crate::find::CrabFind;
-use crate::{crab_err, crab_print, crab_log};
+use crate::{crab_err, crab_log, crab_status};
 use super::helpers::CrabBuildFunc;
 use std::io::ErrorKind;
 
@@ -157,13 +157,12 @@ impl CrabBuild {
             }
 
             if !changed.contains(&result[1]) {
-                crab_print!(purple, "Skipping: {} (Has not been changed)", &result[1]);
                 crab_log!("INFO", "BUILD", "Skipping file: {}", &result[1]);
                 return Ok(());
             }
 
             let path_to_obj = format!("{}/{}", path_obj.display(), result[0]);
-            crab_print!(blue, "{} -> {}", &result[1], path_to_obj);
+            crab_status!("Compiling", "{}", &result[1]);
 
             let mut compile_args: Vec<String> = vec![
                 "-c".to_string(),
@@ -195,7 +194,6 @@ impl CrabBuild {
         }
 
         let mut obj_files = Vec::new();
-        let mut out = String::new();
 
         let crb = CrabBuildFunc::new();
 
@@ -204,7 +202,6 @@ impl CrabBuild {
 
             if entry.metadata()?.is_file() {
                 obj_files.push(entry.path().display().to_string());
-                out.push_str(&format!("{} + ", entry.file_name().display()));
             }
         }
 
@@ -216,6 +213,7 @@ impl CrabBuild {
 
         // EXE_SUFFIX = ".exe" на Windows, "" на Unix
         let exe = std::env::consts::EXE_SUFFIX;
+        let bin_display = format!("{}{}", bin_name.unwrap_or(&project_name), exe);
         let path_to_bin = if let (Some(m_name), Some(b_name)) = (mod_name, bin_name) {
             format!("{}/{}/{}/{}/{}/{}{}", CONFIG.build_dir, CONFIG.module_dir, m_name, profile.dir(), CONFIG.binary_dir, b_name, exe)
         } else {
@@ -223,6 +221,7 @@ impl CrabBuild {
         };
 
         crab_log!("INFO", "BUILD", "Creating a path for an executable file: {}", path_to_bin);
+        crab_status!("Linking", "{}", bin_display);
 
         if !is_find {
             crab_log!("INFO", "BUILD", "Linking without third-party libraries");
@@ -231,28 +230,8 @@ impl CrabBuild {
             let (paths, names) = self.read_lib_path_and_fmt()?;
 
             crab_log!("INFO", "BUILD", "Linking with third-party libraries: {:?}", names);
-
-            if !names.is_empty() {
-                println!("\nlibraries:");
-
-                for name in &names {
-                    crab_print!(green, "+ {}", name);
-                }
-            }
             crb.output_wrapper(Command::new(&compiler).args(&obj_files).arg("-o").arg(&path_to_bin).args(link_flags).args(paths).args(names).args(&user_link).output())?;
         }
-
-        if out.len() > 1 {
-            out.truncate(out.len() - 2);
-        }
-
-        if let Some(b_name) = bin_name {
-            out.push_str(&format!("-> {}", b_name));
-        } else {
-            out.push_str(&format!("-> {}", project_name));
-        }
-
-        crab_print!(cyan, "{}", out);
 
         Ok(())
     }
@@ -265,10 +244,6 @@ impl CrabBuild {
 
         let start = Instant::now();
 
-        match profile {
-            BuildProfile::Debug => { crab_print!(blue, "DEBUG BUILDING:\n"); }
-            BuildProfile::Release => { crab_print!(green, "RELEASE BUILDING:\n"); }
-        }
         crab_log!("INFO", "BUILD", "START {} BUILDING", profile.dir());
 
         let flag = profile.dir();
@@ -285,7 +260,12 @@ impl CrabBuild {
         let source_dir = config.settings.source_dir;
         let path = Path::new(&source_dir);
 
-        println!("collecting files: ");
+        if is_module {
+            crab_status!("Compiling", "module {} [{}]", mod_name.unwrap(), flag);
+        } else {
+            crab_status!("Compiling", "{} v{} [{}]", config.project.name, config.project.version, flag);
+        }
+
         let mut source: Vec<String>;
 
         if is_module {
@@ -313,7 +293,6 @@ impl CrabBuild {
 
         crb.write_file_in_config(&source)?;
 
-        println!("\nchecking ignored files: ");
         crb.check_ignore_files(&mut source)?;
 
         if source.is_empty() {
@@ -336,8 +315,6 @@ impl CrabBuild {
             CrabFind::new(".").parsing_include()?
         };
 
-        println!("\ncompiling to an object file: ");
-
         let base = if is_module {
             PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(mod_name.unwrap()).join(flag)
         } else {
@@ -355,10 +332,9 @@ impl CrabBuild {
         // Убираем .o от удалённых исходников, чтобы они не попали в линковку
         crb.prune_orphan_objects(&path_dep, &path_obj)?;
 
-        println!("\nlinking: ");
         self.linking(profile, &path_obj, find, mod_name, bin_name)?;
 
-        crab_print!(green, "\nDone! ({:.2} sec)", start.elapsed().as_secs_f64());
+        crab_status!("Finished", "{} target in {:.2}s", flag, start.elapsed().as_secs_f64());
         crab_log!("INFO", "BUILD", "End of the build");
 
         Ok(())

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use crate::config::{load_config, CrabConfig, CONFIG};
-use crate::{crab_err, crab_log};
+use crate::{crab_err, crab_log, crab_status};
 use std::io::ErrorKind;
 
 pub struct CrabRun;
@@ -35,6 +35,8 @@ impl CrabRun {
             crab_log!("ERROR", "RUN", "The executable file was not found: {}", path_to_bin.display());
             crab_err!(ErrorKind::NotFound, "The executable file was not found: {}", path_to_bin.display());
         }
+
+        crab_status!("Running", "{}", exe_name);
 
         let mut cmd = Command::new(&path_to_bin);
         if gdb {
@@ -85,6 +87,8 @@ impl CrabRun {
             crab_log!("ERROR", "RUN", "Module: The executable file was not found: {}", path_to_mod_bin.display());
             crab_err!(ErrorKind::NotFound, "The executable file was not found: {}", path_to_mod_bin.display());
         }
+
+        crab_status!("Running", "{}", exe_name);
 
         let mut cmd = Command::new(&path_to_mod_bin);
         if gdb {

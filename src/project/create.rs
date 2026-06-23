@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 
 use crate::config::{save_config, Build, CrabConfig, Libraries, Project, Settings, CONFIG};
 use crate::find::CrabFind;
-use crate::{crab_err, crab_print};
+use crate::{crab_err, crab_print, crab_status};
 use std::io::{ErrorKind, Write};
 
 pub struct CrabProject {
@@ -147,7 +147,7 @@ impl CrabProject {
         file.write_all(main_code.as_bytes())?;
         self.init_config(&self.name, true, lang)?;
 
-        crab_print!(green, "The \"{}\" project has been successfully created!", &self.name);
+        crab_status!("Created", "{} project `{}`", lang, &self.name);
 
         if git {
             if self.is_git() {
@@ -264,7 +264,7 @@ impl CrabProject {
 
             self.init_config(&project_name, false, lang)?;
 
-            crab_print!(cyan, "The \"{}\" project has been successfully initialized!", project_name);
+            crab_status!("Initialized", "project `{}`", project_name);
         }
 
         Ok(())

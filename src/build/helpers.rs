@@ -400,13 +400,12 @@ impl CrabBuildFunc {
                 files_to_conf.push(c.to_string());
             } else {
                 is_ignore_out = true;
-                crab_print!(red, "ignore: {}", c);
+                crab_print!(yellow, "{:>12} {}", "Ignored", c);
             }
 
         }
 
         if !is_ignore_out {
-            crab_print!(red, "None");
             crab_log!("INFO", "BUILD", "There are no ignored files");
         }
 
@@ -478,7 +477,6 @@ impl CrabBuildFunc {
                         }
 
                 } else if path.extension().is_some_and(|ext| ext == extension) {
-                    crab_print!(green, "{}", path.display());
                     files.push(path.display().to_string());
                 }
             }

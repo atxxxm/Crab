@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::config::CONFIG;
-use crate::{crab_err, crab_print, crab_log};
+use crate::{crab_err, crab_log, crab_status};
 use std::io::ErrorKind;
 
 pub struct CrabClean;
@@ -29,11 +29,9 @@ impl CrabClean {
             crab_err!(ErrorKind::NotFound, "The directory was not found: {}", path.display());
         }
 
-        println!("Clearing: {}", path.display());
-
         fs::remove_dir_all(&path)?;
         fs::create_dir(&path)?;
-        crab_print!(green, "Done!");
+        crab_status!("Cleaned", "{}", path.display());
 
         Ok(())
     }
@@ -47,12 +45,11 @@ impl CrabClean {
             crab_err!(ErrorKind::NotFound, "The directory was not found: {}", path.display());
         }
 
-        println!("Clearing: {}", path.display());
         crab_log!("INFO", "CLEAN", "Clearing: {}", path.display());
 
         fs::remove_dir_all(&path)?;
         fs::create_dir(&path)?;
-        crab_print!(green, "Done!");
+        crab_status!("Cleaned", "{}", path.display());
 
         crab_log!("INFO", "CLEAN", "Cleaning is finished");
 
@@ -68,12 +65,11 @@ impl CrabClean {
             crab_err!(ErrorKind::NotFound, "The directory was not found: {}", path.display());
         }
 
-        println!("Clearing: {}", &path.display());
         crab_log!("INFO", "CLEAN", "Clearing: {}", path.display());
 
         fs::remove_dir_all(&path)?;
         fs::create_dir(&path)?;
-        crab_print!(green, "Done!");
+        crab_status!("Cleaned", "{}", path.display());
         crab_log!("INFO", "CLEAN", "Cleaning is finished");
 
         Ok(())
