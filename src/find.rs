@@ -1,4 +1,4 @@
-use std::{env, fs::{self, File, OpenOptions}, io::{BufRead, BufReader, Write}, path::Path, path::PathBuf};
+use std::{env, fs::{self, File, OpenOptions}, io::{BufRead, BufReader, Write}, path::Path, path::PathBuf, process::{Command, Stdio}};
 use crate::config::{load_config, CrabConfig, CONFIG};
 use crate::{crab_err, crab_log, crab_print};
 use std::io::ErrorKind;
@@ -324,11 +324,71 @@ impl CrabFind {
     }
 
     // Для флага -I (None, если каталог с заголовком не найден)
-    fn find_header(&self, header: &str) -> std::io::Result<Option<String>> {
-        let search_paths = ["./include", "/usr/include", "/usr/local/include", ];
+    // Каталоги поиска заголовков, о которых сообщает сам компилятор
+    fn compiler_include_dirs(&self, compiler: &str, lang: &str) -> Vec<String> {
+        let xlang = if lang == "c" { "c" } else { "c++" };
+        let mut dirs = Vec::new();
 
-        for &path in &search_paths {
-            let full_path = Path::new(path).join(header);
+        let output = Command::new(compiler)
+            .args(["-E", "-Wp,-v", "-x", xlang, "-"])
+            .stdin(Stdio::null())
+            .output();
+
+        if let Ok(out) = output {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let mut collecting = false;
+
+            for line in stderr.lines() {
+                if line.contains("search starts here") {
+                    collecting = true;
+                    continue;
+                }
+                if line.contains("End of search list") {
+                    break;
+                }
+                if collecting {
+                    let p = line.trim();
+                    if !p.is_empty() {
+                        dirs.push(p.to_string());
+                    }
+                }
+            }
+        }
+
+        dirs
+    }
+
+    // Каталоги поиска библиотек от компилятора (gcc -print-search-dirs)
+    fn compiler_library_dirs(&self, compiler: &str) -> Vec<String> {
+        let mut dirs = Vec::new();
+
+        let output = Command::new(compiler).arg("-print-search-dirs").output();
+
+        if let Ok(out) = output {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let sep = if cfg!(windows) { ';' } else { ':' };
+
+            for line in stdout.lines() {
+                if let Some(rest) = line.strip_prefix("libraries:") {
+                    let rest = rest.trim().trim_start_matches('=');
+                    for p in rest.split(sep) {
+                        if !p.is_empty() {
+                            dirs.push(p.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        dirs
+    }
+
+    // Для флага -I (None, если каталог с заголовком не найден)
+    fn find_header(&self, header: &str, extra_dirs: &[String]) -> std::io::Result<Option<String>> {
+        let base = ["./include", "/usr/include", "/usr/local/include"];
+
+        for path in base.iter().map(|s| s.to_string()).chain(extra_dirs.iter().cloned()) {
+            let full_path = Path::new(&path).join(header);
 
             if full_path.exists()
                 && let Some(parent) = full_path.parent() {
@@ -352,22 +412,27 @@ impl CrabFind {
     }
 
     // Для флага -l
-    fn find_library(&self, header: &str) -> std::io::Result<String> {
-        let name_lib = header.split('/').next().unwrap_or(header).to_lowercase();
-        let mut txt=  String::new();
+    fn find_library(&self, header: &str, extra_dirs: &[String]) -> std::io::Result<String> {
+        // имя пакета: первый компонент пути или имя файла без расширения
+        let name_lib = match header.split_once('/') {
+            Some((pkg, _)) => pkg.to_lowercase(),
+            None => Path::new(header)
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_lowercase())
+                .unwrap_or_else(|| header.to_lowercase()),
+        };
+        let mut txt = String::new();
 
         let lib_prefixes = ["lib", ""];
-        let search_path: [&'static str; 4] = ["/usr/lib", "/usr/local/lib", "./lib", "/usr/lib64"];
+        let base = ["/usr/lib", "/usr/local/lib", "./lib", "/usr/lib64"];
+        let dll = std::env::consts::DLL_SUFFIX;
         // .a + платформенная динамическая (.so / .dll / .dylib)
-        let lib_extensions = [".a", std::env::consts::DLL_SUFFIX];
+        let lib_extensions = [".a", dll];
 
-        for &sp in &search_path {
+        for sp in base.iter().map(|s| s.to_string()).chain(extra_dirs.iter().cloned()) {
+            // нефатально: недоступный каталог просто пропускаем
+            let Ok(dirs) = fs::read_dir(&sp) else { continue; };
 
-            if fs::metadata(sp).is_err() {
-                continue;
-            }
-
-            let dirs = fs::read_dir(sp)?;
             for dir in dirs {
                 let dir = dir?;
                 let path = dir.path();
@@ -376,21 +441,15 @@ impl CrabFind {
 
                 if path.is_file() {
 
-                    let fmt_name = file_name_os.to_string_lossy().to_string();
-                    let file_name = fmt_name.to_lowercase();
+                    let file_name = file_name_os.to_string_lossy().to_lowercase();
 
                     for &pr in &lib_prefixes {
                         for &ext in &lib_extensions {
                             let target = format!("{}{}", pr, name_lib);
 
                             if file_name.starts_with(&target) && file_name.ends_with(ext) {
-                                let fmt_name_2 = if fmt_name.starts_with("lib") {
-                                    fmt_name.replace(".a", "").replace("lib", "").replace(".so", "")
-                                } else {
-                                    fmt_name.replace(".a", "").replace(".so", "")
-                                };
-
-                                txt.push_str(&format!("{}\n", fmt_name_2));
+                                // пишем полный путь — единый формат с ручным режимом
+                                txt.push_str(&format!("{}\n", path.display()));
                             }
                         }
                     }
@@ -489,12 +548,17 @@ impl CrabFind {
         let mut include_vec: Vec<String> = Vec::new();
         let mut lib_vec: Vec<String> = Vec::new();
 
+        // Каталоги поиска берём у самого компилятора — работает на Linux/macOS/Windows
+        let compiler = config.settings.compiler;
+        let inc_dirs = self.compiler_include_dirs(&compiler, &lang);
+        let lib_dirs = self.compiler_library_dirs(&compiler);
+
         for incl_sys in sys_includes {
-            if let Some(header_dir) = self.find_header(&incl_sys)? {
+            if let Some(header_dir) = self.find_header(&incl_sys, &inc_dirs)? {
                 include_vec.push(header_dir);
             }
 
-            let lib = self.find_library(&incl_sys)?;
+            let lib = self.find_library(&incl_sys, &lib_dirs)?;
             if !lib.trim().is_empty() {
                 lib_vec.push(lib);
             }

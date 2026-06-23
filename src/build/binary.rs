@@ -106,17 +106,34 @@ impl CrabBuild {
             }
 
             let init_path = Path::new(&line);
-            let path = format!("-L{}", init_path.parent().unwrap().display());
+            let Some(parent) = init_path.parent() else { continue; };
+            let Some(file_name) = init_path.file_name().and_then(|n| n.to_str()) else { continue; };
 
-            let file_name = init_path.file_stem().unwrap().to_str().unwrap();
-            let clean_name = file_name.strip_prefix("lib").unwrap_or(file_name);
-            let name = format!("-l{}", clean_name);
+            let path = format!("-L{}", parent.display());
+            let name = format!("-l{}", Self::lib_link_name(file_name));
 
-            lib_path.push(path);
-            lib_name.push(name);
+            if !lib_path.contains(&path) {
+                lib_path.push(path);
+            }
+            if !lib_name.contains(&name) {
+                lib_name.push(name);
+            }
         }
 
         Ok((lib_path, lib_name))
+    }
+
+    // Имя библиотеки для флага -l из имени файла:
+    // отбрасываем расширение (включая .dll.a) и ведущий "lib"
+    fn lib_link_name(file_name: &str) -> String {
+        let mut name = file_name;
+        for ext in [".dll.a", ".dylib", ".so", ".dll", ".lib", ".a"] {
+            if let Some(stripped) = name.strip_suffix(ext) {
+                name = stripped;
+                break;
+            }
+        }
+        name.strip_prefix("lib").unwrap_or(name).to_string()
     }
 
     // Компиляция исходников в объектные файлы (debug/release)
