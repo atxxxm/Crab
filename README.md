@@ -18,6 +18,7 @@
 - 🔎 **Поиск сторонних библиотек** — автоматически по системным путям или вручную.
 - 🌳 **Дерево зависимостей** `#include` (`crab tree`).
 - 🧪 **Тесты** — сборка и запуск тестовых бинарников из `tests/` (`crab test`).
+- 👀 **Watch-режим** — автоматическая пересборка при изменении файлов (`crab watch`).
 - 🎨 **Форматирование кода** через `clang-format` (`crab fmt`).
 - 🧠 **Интеграция с IDE** — генерация `compile_commands.json` для clangd/VS Code/CLion (`crab compdb`).
 - ⚙️ **Пользовательские флаги сборки** через секцию `[build]` в `config.toml`.
@@ -179,6 +180,32 @@ crab config set --compiler clang     # gcc | gpp | clang
 ```bash
 crab module add net       # зарегистрировать подкаталог src/net как модуль
 crab module remove net
+```
+
+### `crab watch` (алиас `w`) — автопересборка при изменении файлов
+
+Наблюдает за `src/` и `include/`, сразу делает начальную сборку, затем при каждом
+изменении файла перезапускает инкрементальную сборку. При ошибке компиляции продолжает
+смотреть — достаточно исправить файл.
+
+| Опция | Описание |
+|-------|----------|
+| `-r, --release` | пересборка в release вместо debug |
+
+```bash
+crab watch
+crab watch -r
+```
+
+Пример вывода:
+```
+   Watching src/ include/ (Ctrl+C to stop)
+   Finished debug target in 0.01s
+   Changed src/main.cpp
+ Compiling myapp v0.0.1 [debug]
+ Compiling src/main.cpp
+  Linking myapp
+   Finished debug target in 0.18s
 ```
 
 ### `crab install` — установить бинарник

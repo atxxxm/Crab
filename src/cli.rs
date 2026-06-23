@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use crab::crab_err;
 use crab::config::{CrabUpdateINI, CONFIG};
 use crab::build::{BuildProfile, CrabBuild, CrabCompDb, CrabLib, CrabTest};
-use crab::project::{CrabClean, CrabInstall, CrabProject, CrabRun, CrabTree};
+use crab::project::{CrabClean, CrabInstall, CrabProject, CrabRun, CrabTree, CrabWatch};
 use crab::module::CrabModule;
 use crab::fmt::CrabFmt;
 use std::io::ErrorKind;
@@ -144,6 +144,14 @@ enum Commands {
     #[command(name = "compdb", visible_alias = "cc", after_help = "Examples:\n  crab compdb\n  crab compdb --release")]
     Compdb {
         /// Use release flags instead of debug
+        #[arg(long, short = 'r')]
+        release: bool,
+    },
+
+    /// Watch source files and rebuild on changes
+    #[command(alias = "w", after_help = "Examples:\n  crab watch\n  crab watch -r")]
+    Watch {
+        /// Watch and rebuild in release mode
         #[arg(long, short = 'r')]
         release: bool,
     },
@@ -468,6 +476,14 @@ pub fn run() -> std::io::Result<()> {
 
             let profile = if release { BuildProfile::Release } else { BuildProfile::Debug };
             CrabCompDb::new().generate(profile)?;
+        }
+
+        Commands::Watch { release } => {
+            if !Path::new(CONFIG.config_file).exists() {
+                crab_err!(ErrorKind::Other, "The current directory is not a project");
+            }
+
+            CrabWatch::new().watch(release)?;
         }
 
         Commands::Test { filter, release } => {
