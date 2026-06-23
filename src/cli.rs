@@ -1,3 +1,4 @@
+use std::io::IsTerminal;
 use std::path::Path;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -34,6 +35,10 @@ struct Cli {
     /// Write a detailed log to crb/crab.log (also enabled by the CRAB_LOG env var)
     #[arg(short, long, global = true)]
     verbose: bool,
+
+    /// Disable colored output (also disabled by the NO_COLOR env var or when piped)
+    #[arg(long, global = true)]
+    no_color: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -255,6 +260,16 @@ enum Compiler {
 
 pub fn run() -> std::io::Result<()> {
     let cli = Cli::parse();
+
+    // Цвет: выключаем при --no-color / NO_COLOR / перенаправлении; CLICOLOR_FORCE включает принудительно
+    let use_color = if cli.no_color || std::env::var_os("NO_COLOR").is_some() {
+        false
+    } else if std::env::var_os("CLICOLOR_FORCE").is_some() {
+        true
+    } else {
+        std::io::stdout().is_terminal()
+    };
+    crab::color::set_enabled(use_color);
 
     if cli.verbose || std::env::var_os("CRAB_LOG").is_some() {
         crab::log::set_enabled(true);

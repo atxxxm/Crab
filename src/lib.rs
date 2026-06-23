@@ -2,6 +2,7 @@ mod macros;
 
 pub mod config;
 pub mod log;
+pub mod color;
 pub mod find;
 pub mod fmt;
 pub mod build;

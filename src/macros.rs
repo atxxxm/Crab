@@ -8,22 +8,22 @@ macro_rules! crab_err {
 #[macro_export]
 macro_rules! crab_print {
     (red, $($arg:tt)*) => {
-        println!("\x1b[31m{}\x1b[0m", format!($($arg)*));
+        println!("{}", $crate::color::paint("31", &format!($($arg)*)));
     };
     (green, $($arg:tt)*) => {
-        println!("\x1b[32m{}\x1b[0m", format!($($arg)*));
+        println!("{}", $crate::color::paint("32", &format!($($arg)*)));
     };
     (yellow, $($arg:tt)*) => {
-        println!("\x1b[33m{}\x1b[0m", format!($($arg)*));
+        println!("{}", $crate::color::paint("33", &format!($($arg)*)));
     };
     (blue, $($arg:tt)*) => {
-        println!("\x1b[34m{}\x1b[0m", format!($($arg)*));
+        println!("{}", $crate::color::paint("34", &format!($($arg)*)));
     };
     (purple, $($arg:tt)*) => {
-        println!("\x1b[35m{}\x1b[0m", format!($($arg)*));
+        println!("{}", $crate::color::paint("35", &format!($($arg)*)));
     };
     (cyan, $($arg:tt)*) => {
-        println!("\x1b[36m{}\x1b[0m", format!($($arg)*));
+        println!("{}", $crate::color::paint("36", &format!($($arg)*)));
     };
     ($($arg:tt)*) => {
         println!($($arg)*);
@@ -34,7 +34,7 @@ macro_rules! crab_print {
 #[macro_export]
 macro_rules! crab_status {
     ($verb:expr, $($arg:tt)*) => {
-        println!("\x1b[1;32m{:>12}\x1b[0m {}", $verb, format!($($arg)*));
+        println!("{} {}", $crate::color::paint("1;32", &format!("{:>12}", $verb)), format!($($arg)*));
     };
 }
 
