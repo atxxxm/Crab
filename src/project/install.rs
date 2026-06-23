@@ -38,7 +38,7 @@ impl CrabInstall {
         let profile = if debug { BuildProfile::Debug } else { BuildProfile::Release };
 
         // Инкрементальная сборка
-        CrabBuild::new().building(profile, None, None)?;
+        CrabBuild::new().building(profile.clone(), None, None)?;
 
         // Целевой каталог
         let bin_dir = match dest {

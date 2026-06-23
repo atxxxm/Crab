@@ -23,13 +23,7 @@ impl CrabRun {
         let config: CrabConfig = load_config(CONFIG.config_file)?;
         let exe_name = format!("{}{}", config.project.name, std::env::consts::EXE_SUFFIX);
 
-        let path_to_bin = if flag == "debug" {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.debug_dir).join(CONFIG.binary_dir).join(&exe_name)
-        } else if flag == "release" {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.release_dir).join(CONFIG.binary_dir).join(&exe_name)
-        } else {
-            PathBuf::new()
-        };
+        let path_to_bin = PathBuf::from(CONFIG.build_dir).join(flag).join(CONFIG.binary_dir).join(&exe_name);
 
         if !path_to_bin.exists() {
             crab_log!("ERROR", "RUN", "The executable file was not found: {}", path_to_bin.display());

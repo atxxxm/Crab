@@ -141,6 +141,23 @@ crab build lib static
 Флаги по умолчанию: **debug** — `-g -O0 -Wall -Wextra -pedantic`,
 **release** — `-O2 -flto` (и `-s` при линковке).
 
+#### Санитайзеры
+
+```bash
+crab build --sanitize asan           # AddressSanitizer
+crab build --sanitize ubsan          # UndefinedBehaviorSanitizer
+crab build --sanitize tsan           # ThreadSanitizer
+crab build --sanitize msan           # MemorySanitizer (только clang + Linux)
+crab build --sanitize asan,ubsan     # комбинация
+
+crab run --sanitize asan             # собрать и запустить с ASan
+crab run --sanitize ubsan            # UBSan автоматически включает print_stacktrace
+```
+
+Санитайзерная сборка хранится отдельно от debug/release (`crb/san-asan/`) и использует
+флаги `-g -O1` — достаточно оптимизаций для читаемых трассировок, достаточно отладочной
+информации для точных адресов.
+
 ### `crab run` — собрать и запустить
 
 Перед запуском проект **инкрементально пересобирается** (как `cargo run`).

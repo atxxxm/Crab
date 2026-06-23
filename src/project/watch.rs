@@ -79,7 +79,7 @@ impl CrabWatch {
         crab_status!("Watching", "{} {} (Ctrl+C to stop)", source_dir, header_dir);
 
         // Начальная сборка
-        if let Err(e) = CrabBuild::new().building(profile, None, None) {
+        if let Err(e) = CrabBuild::new().building(profile.clone(), None, None) {
             crab_print!(red, "error: {}", e);
         }
 
@@ -99,7 +99,7 @@ impl CrabWatch {
 
                 prev = curr;
 
-                if let Err(e) = CrabBuild::new().building(profile, None, None) {
+                if let Err(e) = CrabBuild::new().building(profile.clone(), None, None) {
                     crab_print!(red, "error: {}", e);
                     // не выходим — продолжаем смотреть, чтобы пользователь мог исправить ошибку
                 }

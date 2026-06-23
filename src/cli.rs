@@ -74,14 +74,18 @@ enum Commands {
     Init,
 
     /// Compile the project (debug by default)
-    #[command(alias = "b", after_help = "Examples:\n  crab build\n  crab build release\n  crab build module net -r\n  crab build lib static")]
+    #[command(alias = "b", after_help = "Examples:\n  crab build\n  crab build release\n  crab build --sanitize asan\n  crab build --sanitize asan,ubsan\n  crab build module net -r\n  crab build lib static")]
     Build {
         #[command(subcommand)]
         action: Option<BuildAction>,
+
+        /// Build with sanitizers: asan, ubsan, tsan, msan (comma-separated for multiple)
+        #[arg(long, value_name = "SANITIZER")]
+        sanitize: Option<String>,
     },
 
     /// Build (if needed) and run the binary or a module
-    #[command(after_help = "Examples:\n  crab run\n  crab run -r\n  crab run -m net\n  crab run -- arg1 arg2")]
+    #[command(after_help = "Examples:\n  crab run\n  crab run -r\n  crab run -m net\n  crab run --sanitize asan\n  crab run -- arg1 arg2")]
     Run {
         /// Run the release build instead of debug
         #[arg(long, short = 'r')]
@@ -90,6 +94,10 @@ enum Commands {
         /// Run the given module instead of the main binary
         #[arg(long, short = 'm', value_name = "NAME")]
         module: Option<String>,
+
+        /// Build and run with sanitizers (asan, ubsan, tsan, msan)
+        #[arg(long, value_name = "SANITIZER")]
+        sanitize: Option<String>,
 
         /// Arguments forwarded to the program (place them after --)
         #[arg(trailing_var_arg = true, value_name = "ARGS")]
@@ -337,59 +345,78 @@ pub fn run() -> std::io::Result<()> {
             CrabProject::new("None").init()?;
         }
 
-        Commands::Build { action } => {
+        Commands::Build { action, sanitize } => {
             if !Path::new(CONFIG.config_file).exists() {
                 crab_err!(ErrorKind::Other, "The current directory is not a project");
             }
 
-            let build_mode = CrabBuild::new();
+            if let Some(san) = sanitize {
+                CrabBuild::new().building(BuildProfile::Sanitize(san), None, None)?;
+            } else {
+                let build_mode = CrabBuild::new();
 
-            match action.unwrap_or(BuildAction::Debug) {
-                BuildAction::Debug => {
-                    build_mode.debug_building(None, None)?;
-                }
-
-                BuildAction::Release => {
-                    build_mode.release_building(None, None)?;
-                }
-
-                BuildAction::Module { name, release } => {
-                    if release {
-                        CrabModule::new().build_module(&name, "release")?;
-                    } else {
-                        CrabModule::new().build_module(&name, "debug")?;
+                match action.unwrap_or(BuildAction::Debug) {
+                    BuildAction::Debug => {
+                        build_mode.debug_building(None, None)?;
                     }
-                }
 
-                BuildAction::Lib { mode } => {
-                    match mode {
-                        LibMode::Static => CrabLib::new().static_lib_build()?,
-                        LibMode::Dynamic => CrabLib::new().dynamic_lib_build()?,
+                    BuildAction::Release => {
+                        build_mode.release_building(None, None)?;
+                    }
+
+                    BuildAction::Module { name, release } => {
+                        if release {
+                            CrabModule::new().build_module(&name, "release")?;
+                        } else {
+                            CrabModule::new().build_module(&name, "debug")?;
+                        }
+                    }
+
+                    BuildAction::Lib { mode } => {
+                        match mode {
+                            LibMode::Static => CrabLib::new().static_lib_build()?,
+                            LibMode::Dynamic => CrabLib::new().dynamic_lib_build()?,
+                        }
                     }
                 }
             }
         }
 
-        Commands::Run { release, module, mut args , gdb, valgrind} => {
+        Commands::Run { release, module, sanitize, mut args, gdb, valgrind } => {
             if !Path::new(CONFIG.config_file).exists() {
                 crab_err!(ErrorKind::Other, "The current directory is not a project");
             }
 
-            let mode = if release { "release" } else { "debug" };
             let runner = CrabRun::new();
 
-            if let Some(module_name) = module {
-                // Собираем модуль перед запуском (инкрементально)
-                CrabModule::new().build_module(&module_name, mode)?;
-                runner.run_module(&module_name, mode, &mut args, gdb, valgrind)?;
-            } else {
-                // Собираем проект перед запуском (инкрементально)
-                if release {
-                    CrabBuild::new().release_building(None, None)?;
-                } else {
-                    CrabBuild::new().debug_building(None, None)?;
+            if let Some(san) = sanitize {
+                // Санитайзерная сборка + запуск
+                let profile = BuildProfile::Sanitize(san.clone());
+                let run_dir = profile.dir();
+                CrabBuild::new().building(profile, None, None)?;
+                // UBSan без print_stacktrace почти бесполезен — включаем автоматически
+                // UBSan без print_stacktrace почти бесполезен — включаем автоматически.
+                // SAFETY: однопоточный контекст до первого spawn/rayon.
+                if san.contains("undefined") {
+                    unsafe {
+                        std::env::set_var("UBSAN_OPTIONS", "print_stacktrace=1:halt_on_error=1");
+                    }
                 }
-                runner.run(mode, &mut args, gdb, valgrind)?;
+                runner.run(&run_dir, &mut args, gdb, valgrind)?;
+            } else {
+                let mode = if release { "release" } else { "debug" };
+
+                if let Some(module_name) = module {
+                    CrabModule::new().build_module(&module_name, mode)?;
+                    runner.run_module(&module_name, mode, &mut args, gdb, valgrind)?;
+                } else {
+                    if release {
+                        CrabBuild::new().release_building(None, None)?;
+                    } else {
+                        CrabBuild::new().debug_building(None, None)?;
+                    }
+                    runner.run(mode, &mut args, gdb, valgrind)?;
+                }
             }
         }
 

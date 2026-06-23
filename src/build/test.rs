@@ -64,7 +64,7 @@ impl CrabTest {
 
         // Инкрементально собираем основной проект (объектные файлы должны быть актуальны)
         let profile = if release { BuildProfile::Release } else { BuildProfile::Debug };
-        CrabBuild::new().building(profile, None, None)?;
+        CrabBuild::new().building(profile.clone(), None, None)?;
 
         // Каталоги с .o файлами основного проекта
         let obj_dir = PathBuf::from(CONFIG.build_dir).join(profile.dir()).join(CONFIG.object_dir);

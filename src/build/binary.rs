@@ -12,35 +12,52 @@ use super::helpers::CrabBuildFunc;
 use std::io::ErrorKind;
 
 // Профиль сборки: отличаются каталогом и набором флагов компиляции/линковки
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub enum BuildProfile {
     Debug,
     Release,
+    /// Санитайзеры: asan, ubsan, tsan, msan или их комбинация через запятую
+    Sanitize(String),
 }
 
 impl BuildProfile {
-    // Имя каталога режима ("debug" | "release")
-    pub(crate) fn dir(&self) -> &'static str {
+    // Имя каталога: "debug", "release" или "san-asan", "san-asan-ubsan" и т.п.
+    pub fn dir(&self) -> String {
         match self {
-            BuildProfile::Debug => CONFIG.debug_dir,
-            BuildProfile::Release => CONFIG.release_dir,
+            BuildProfile::Debug    => CONFIG.debug_dir.to_string(),
+            BuildProfile::Release  => CONFIG.release_dir.to_string(),
+            BuildProfile::Sanitize(s) => format!("san-{}", s.replace(',', "-")),
         }
     }
 
-    // Флаги компиляции в объектный файл
+    // Базовые флаги компиляции (санитайзеры используют debug + O1 для читаемых трассировок)
     pub(crate) fn compile_flags(&self) -> &'static [&'static str] {
         match self {
-            BuildProfile::Debug => &["-g", "-O0", "-Wall", "-Wextra", "-pedantic"],
-            BuildProfile::Release => &["-O2", "-flto"],
+            BuildProfile::Debug            => &["-g", "-O0", "-Wall", "-Wextra", "-pedantic"],
+            BuildProfile::Release          => &["-O2", "-flto"],
+            BuildProfile::Sanitize(_)      => &["-g", "-O1", "-Wall", "-Wextra"],
         }
     }
 
     // Флаги линковки
     pub(crate) fn link_flags(&self) -> &'static [&'static str] {
         match self {
-            BuildProfile::Debug => &[],
+            BuildProfile::Debug | BuildProfile::Sanitize(_) => &[],
             BuildProfile::Release => &["-O2", "-flto", "-s"],
         }
+    }
+
+    // Флаги -fsanitize=... (пусты для Debug/Release)
+    pub(crate) fn sanitizer_flags(&self) -> Vec<String> {
+        let BuildProfile::Sanitize(name) = self else {
+            return Vec::new();
+        };
+        let mut flags = vec![format!("-fsanitize={}", name)];
+        // asan и msan требуют frame pointer для читаемых трассировок
+        if name.contains("address") || name.contains("memory") {
+            flags.push("-fno-omit-frame-pointer".to_string());
+        }
+        flags
     }
 }
 
@@ -153,8 +170,8 @@ impl CrabBuild {
         name.strip_prefix("lib").unwrap_or(name).to_string()
     }
 
-    // Компиляция исходников в объектные файлы (debug/release)
-    fn compile_to_object(&self, profile: BuildProfile, path_dep: &Path, path_obj: &Path, is_find: bool, changed: &[String]) -> std::io::Result<()> {
+    // Компиляция исходников в объектные файлы
+    fn compile_to_object(&self, profile: &BuildProfile, path_dep: &Path, path_obj: &Path, is_find: bool, changed: &[String]) -> std::io::Result<()> {
         crab_log!("INFO", "BUILD", "Compilation to an object file");
         let config: CrabConfig = load_config(CONFIG.config_file)?;
         let cbf = CrabBuildFunc::new();
@@ -213,14 +230,14 @@ impl CrabBuild {
                 compile_args.extend(self.read_include_files_and_fmt()?);
             }
 
-            cbf.output_wrapper(Command::new(&compiler).args(&compile_args).args(flags).args(&user_compile).output())
+            cbf.output_wrapper(Command::new(&compiler).args(&compile_args).args(flags).args(&user_compile).args(profile.sanitizer_flags()).output())
         })?;
 
         Ok(())
     }
 
     // Линковка объектных файлов в исполняемый
-    fn linking(&self, profile: BuildProfile, path_obj: &Path, is_find: bool, mod_name: Option<&str>, bin_name: Option<&str>) -> std::io::Result<()> {
+    fn linking(&self, profile: &BuildProfile, path_obj: &Path, is_find: bool, mod_name: Option<&str>, bin_name: Option<&str>) -> std::io::Result<()> {
         crab_log!("INFO", "BUILD", "Linking");
         if !path_obj.exists() {
             crab_log!("ERROR", "BUILD", "The directory with the object files was not found: {}", path_obj.display());
@@ -257,14 +274,16 @@ impl CrabBuild {
         crab_log!("INFO", "BUILD", "Creating a path for an executable file: {}", path_to_bin);
         crab_status!("Linking", "{}", bin_display);
 
+        let san_flags = profile.sanitizer_flags();
+
         if !is_find {
             crab_log!("INFO", "BUILD", "Linking without third-party libraries");
-            crb.output_wrapper(Command::new(&compiler).args(&obj_files).arg("-o").arg(&path_to_bin).args(link_flags).args(&user_link).output())?;
+            crb.output_wrapper(Command::new(&compiler).args(&obj_files).arg("-o").arg(&path_to_bin).args(link_flags).args(&user_link).args(&san_flags).output())?;
         } else {
             let (paths, names) = self.read_lib_path_and_fmt()?;
 
             crab_log!("INFO", "BUILD", "Linking with third-party libraries: {:?}", names);
-            crb.output_wrapper(Command::new(&compiler).args(&obj_files).arg("-o").arg(&path_to_bin).args(link_flags).args(paths).args(names).args(&user_link).output())?;
+            crb.output_wrapper(Command::new(&compiler).args(&obj_files).arg("-o").arg(&path_to_bin).args(link_flags).args(paths).args(names).args(&user_link).args(&san_flags).output())?;
         }
 
         Ok(())
@@ -284,9 +303,9 @@ impl CrabBuild {
         let is_module = mod_name.is_some() && bin_name.is_some();
 
         if is_module {
-            crb.create_module_dir(flag, mod_name.unwrap())?;
+            crb.create_module_dir(&flag, mod_name.unwrap())?;
         } else {
-            crb.create_build_dir(flag)?;
+            crb.create_build_dir(&flag)?;
         }
 
         let config: CrabConfig = load_config(CONFIG.config_file)?;
@@ -328,9 +347,9 @@ impl CrabBuild {
         }
 
         if is_module {
-            crb.write_dependencies_module(mod_name.unwrap(), flag, &source)?;
+            crb.write_dependencies_module(mod_name.unwrap(), &flag, &source)?;
         } else {
-            crb.write_dependencies(flag, &source)?;
+            crb.write_dependencies(&flag, &source)?;
         }
 
         let find = if is_module {
@@ -344,9 +363,9 @@ impl CrabBuild {
         };
 
         let base = if is_module {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(mod_name.unwrap()).join(flag)
+            PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(mod_name.unwrap()).join(&flag)
         } else {
-            PathBuf::from(CONFIG.build_dir).join(flag)
+            PathBuf::from(CONFIG.build_dir).join(&flag)
         };
 
         let path_dep = base.join(CONFIG.dependencies);
@@ -371,12 +390,12 @@ impl CrabBuild {
             crab_status!("Compiling", "{} v{} [{}]", config.project.name, config.project.version, flag);
         }
 
-        self.compile_to_object(profile, &path_dep, &path_obj, find, &changed)?;
+        self.compile_to_object(&profile, &path_dep, &path_obj, find, &changed)?;
 
         // Убираем .o от удалённых исходников, чтобы они не попали в линковку
         crb.prune_orphan_objects(&path_dep, &path_obj)?;
 
-        self.linking(profile, &path_obj, find, mod_name, bin_name)?;
+        self.linking(&profile, &path_obj, find, mod_name, bin_name)?;
 
         crab_status!("Finished", "{} target in {:.2}s", flag, start.elapsed().as_secs_f64());
         crab_log!("INFO", "BUILD", "End of the build");
