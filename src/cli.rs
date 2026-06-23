@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use crab::crab_err;
 use crab::config::{CrabUpdateINI, CONFIG};
 use crab::build::{BuildProfile, CrabBuild, CrabCompDb, CrabLib, CrabTest};
-use crab::project::{CrabClean, CrabProject, CrabRun, CrabTree};
+use crab::project::{CrabClean, CrabInstall, CrabProject, CrabRun, CrabTree};
 use crab::module::CrabModule;
 use crab::fmt::CrabFmt;
 use std::io::ErrorKind;
@@ -123,6 +123,18 @@ enum Commands {
     Module {
         #[command(subcommand)]
         action: ModuleAction,
+    },
+
+    /// Build (release) and install the binary to ~/.local/bin
+    #[command(after_help = "Examples:\n  crab install\n  crab install --path /usr/local/bin\n  crab install --debug")]
+    Install {
+        /// Destination directory (default: ~/.local/bin on Unix, %USERPROFILE%\\.local\\bin on Windows)
+        #[arg(long, short = 'p', value_name = "PATH")]
+        path: Option<String>,
+
+        /// Install the debug build instead of release
+        #[arg(long)]
+        debug: bool,
     },
 
     /// Print the #include dependency tree
@@ -435,6 +447,14 @@ pub fn run() -> std::io::Result<()> {
                     CrabModule::new().remove(&name)?;
                 }
             }
+        }
+
+        Commands::Install { path, debug } => {
+            if !Path::new(CONFIG.config_file).exists() {
+                crab_err!(ErrorKind::Other, "The current directory is not a project");
+            }
+
+            CrabInstall::new().install(path.as_deref(), debug)?;
         }
 
         Commands::Tree => {
