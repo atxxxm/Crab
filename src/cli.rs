@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use crab::crab_err;
 use crab::config::{CrabUpdateINI, CONFIG};
-use crab::build::{BuildProfile, CrabBuild, CrabCompDb, CrabLib};
+use crab::build::{BuildProfile, CrabBuild, CrabCompDb, CrabLib, CrabTest};
 use crab::project::{CrabClean, CrabProject, CrabRun, CrabTree};
 use crab::module::CrabModule;
 use crab::fmt::CrabFmt;
@@ -128,6 +128,18 @@ enum Commands {
     #[command(name = "compdb", visible_alias = "cc", after_help = "Examples:\n  crab compdb\n  crab compdb --release")]
     Compdb {
         /// Use release flags instead of debug
+        #[arg(long, short = 'r')]
+        release: bool,
+    },
+
+    /// Build and run tests from the tests/ directory
+    #[command(alias = "t", after_help = "Examples:\n  crab test\n  crab test math\n  crab test -r")]
+    Test {
+        /// Run only tests whose filename contains FILTER
+        #[arg(value_name = "FILTER")]
+        filter: Option<String>,
+
+        /// Link tests against the release build of the project
         #[arg(long, short = 'r')]
         release: bool,
     },
@@ -428,6 +440,14 @@ pub fn run() -> std::io::Result<()> {
 
             let profile = if release { BuildProfile::Release } else { BuildProfile::Debug };
             CrabCompDb::new().generate(profile)?;
+        }
+
+        Commands::Test { filter, release } => {
+            if !Path::new(CONFIG.config_file).exists() {
+                crab_err!(ErrorKind::Other, "The current directory is not a project");
+            }
+
+            CrabTest::new().run_tests(filter.as_deref(), release)?;
         }
 
         Commands::Fmt { check, style } => {

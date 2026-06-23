@@ -10,6 +10,8 @@ pub struct CrabConfig {
     #[serde(default)]
     pub build: Build,
     #[serde(default)]
+    pub test: TestConfig,
+    #[serde(default)]
     pub files: HashMap<String, String>,
     pub libraries: Libraries,
     pub module: HashMap<String, Module>,
@@ -84,6 +86,23 @@ pub struct Module {
     pub dependencies: Vec<String>,
     #[serde(default)]
     pub output_name: Option<String>,
+}
+
+// Секция [test] в config.toml (опциональна, по умолчанию ищет тесты в tests/)
+#[derive(Deserialize, Serialize, Debug)]
+pub struct TestConfig {
+    #[serde(default = "default_test_dir")]
+    pub dir: String,
+}
+
+fn default_test_dir() -> String {
+    "tests".to_string()
+}
+
+impl Default for TestConfig {
+    fn default() -> Self {
+        Self { dir: default_test_dir() }
+    }
 }
 
 /*=====ДОП КОНИФГ=====*/

@@ -36,7 +36,7 @@ impl BuildProfile {
     }
 
     // Флаги линковки
-    fn link_flags(&self) -> &'static [&'static str] {
+    pub(crate) fn link_flags(&self) -> &'static [&'static str] {
         match self {
             BuildProfile::Debug => &[],
             BuildProfile::Release => &["-O2", "-flto", "-s"],
@@ -58,7 +58,7 @@ impl CrabBuild {
     }
 
     // Чтение файла с путями для сторонних библиотек -> список флагов -I (по одному на аргумент)
-    fn read_include_files_and_fmt(&self) -> std::io::Result<Vec<String>> {
+    pub(crate) fn read_include_files_and_fmt(&self) -> std::io::Result<Vec<String>> {
         let path = PathBuf::from(CONFIG.build_dir).join(CONFIG.data_dir).join(CONFIG.include_file);
 
         if !path.exists() {
@@ -88,7 +88,7 @@ impl CrabBuild {
     // Поддерживает два формата строк:
     //   - сырые флаги "-L/path" и "-lname" (из pkg-config)
     //   - полные пути к файлам библиотек (из fallback-поиска по dir компилятора)
-    fn read_lib_path_and_fmt(&self) -> std::io::Result<(Vec<String>, Vec<String>)> {
+    pub(crate) fn read_lib_path_and_fmt(&self) -> std::io::Result<(Vec<String>, Vec<String>)> {
         let path_to_file = PathBuf::from(CONFIG.build_dir).join(CONFIG.data_dir).join(CONFIG.lib_file);
 
         if !path_to_file.exists() {

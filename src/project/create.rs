@@ -84,6 +84,7 @@ impl CrabProject {
             },
 
             build: Build::default(),
+            test: crate::config::TestConfig::default(),
 
             files: if is_new {
                 let mut files = HashMap::new();
