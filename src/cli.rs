@@ -47,7 +47,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Create a new project in a new directory
-    #[command(after_help = "Examples:\n  crab new myapp\n  crab new mylib --lang c --git\n  crab new tool --cli")]
+    #[command(after_help = "Examples:\n  crab new myapp\n  crab new mylib --lang c --git\n  crab new mylib --lib\n  crab new tool --cli")]
     New {
         /// Project name (used as the directory name)
         #[arg(value_name = "NAME")]
@@ -62,8 +62,12 @@ enum Commands {
         lang: Lang,
 
         /// Use the CLI main() template (int argc, char *argv[])
-        #[arg(short, long)]
-        cli: bool
+        #[arg(short, long, conflicts_with = "lib")]
+        cli: bool,
+
+        /// Create a library project (src/<name>.cpp + include/<name>.hpp, no main)
+        #[arg(long, conflicts_with = "cli")]
+        lib: bool,
     },
 
     /// Initialize a project in the current folder
@@ -288,7 +292,7 @@ pub fn run() -> std::io::Result<()> {
     }
 
     match cli.command {
-        Commands::New { name, git, lang , cli} => {
+        Commands::New { name, git, lang, cli, lib } => {
             if !is_valid_project_name(&name) {
                 crab_err!(ErrorKind::InvalidFilename, "Invalid project name: {}", name);
             }
@@ -302,7 +306,11 @@ pub fn run() -> std::io::Result<()> {
                 Lang::Cpp => "c++"
             };
 
-            CrabProject::new(&name).create(git, lang_str, cli)?;
+            if lib {
+                CrabProject::new(&name).create_lib(git, lang_str)?;
+            } else {
+                CrabProject::new(&name).create(git, lang_str, cli)?;
+            }
         }
 
         Commands::Init => {

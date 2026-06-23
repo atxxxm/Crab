@@ -86,11 +86,34 @@ crab build release             # оптимизированная сборка
 | `-l, --lang <c\|cpp>` | язык проекта (по умолчанию `cpp`) |
 | `-g, --git` | инициализировать git-репозиторий и добавить `.gitignore` |
 | `-c, --cli` | шаблон `main` с аргументами (`int argc, char *argv[]`) |
+| `--lib` | шаблон библиотеки вместо бинарника (без `main`, создаёт `src/<name>.cpp` + `include/<name>.hpp`) |
 
 ```bash
 crab new myapp
 crab new mylib --lang c --git
 crab new tool --cli
+crab new mylib --lib              # библиотека на C++
+crab new mylib --lib --lang c     # библиотека на C
+```
+
+После `crab new mylib --lib`:
+
+```text
+mylib/
+├── config.toml
+├── crb/
+├── src/
+│   └── mylib.cpp    # реализация
+└── include/
+    └── mylib.hpp    # публичный заголовок
+```
+
+Собрать как библиотеку:
+
+```bash
+cd mylib
+crab build lib static    # -> crb/library/static/libmylib.a
+crab build lib dynamic   # -> crb/library/dynamic/libmylib.so
 ```
 
 ### `crab init` — инициализировать проект в текущей папке

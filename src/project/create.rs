@@ -44,8 +44,9 @@ impl CrabProject {
         Ok(false)
     }
 
-    // Заполнение конфигурационого файла
-    pub fn init_config(&self, project_name: &str, is_new: bool, lang: &str) -> std::io::Result<()> {
+    // Заполнение конфигурационого файла.
+    // src_file — имя начального исходника для секции [files] (None → default main.c/cpp; для init не важно)
+    pub fn init_config(&self, project_name: &str, is_new: bool, lang: &str, src_file: Option<&str>) -> std::io::Result<()> {
         let path_to_config =  if is_new {
             PathBuf::from(project_name).join(CONFIG.config_file)
         } else {
@@ -88,7 +89,8 @@ impl CrabProject {
 
             files: if is_new {
                 let mut files = HashMap::new();
-                files.insert(if lang == "c" { "main.c".to_string() } else { "main.cpp".to_string() }, "on".to_string());
+                let default_name = if lang == "c" { "main.c" } else { "main.cpp" };
+                files.insert(src_file.unwrap_or(default_name).to_string(), "on".to_string());
                 files
             } else {
                 HashMap::new()
@@ -102,6 +104,63 @@ impl CrabProject {
         };
 
         save_config(&config, path_to_config.display().to_string().as_str())?;
+
+        Ok(())
+    }
+
+    // Создание библиотечного проекта: src/<name>.c(pp) + include/<name>.h(pp), без main()
+    pub fn create_lib(&self, git: bool, lang: &str) -> std::io::Result<()> {
+        let name = &self.name;
+        let src_dir     = PathBuf::from(name).join("src");
+        let inc_dir     = PathBuf::from(name).join("include");
+        let build_dir   = PathBuf::from(name).join(CONFIG.build_dir);
+
+        fs::create_dir_all(&src_dir)?;
+        fs::create_dir_all(&inc_dir)?;
+        fs::create_dir_all(&build_dir)?;
+        fs::File::create(PathBuf::from(name).join(CONFIG.config_file))?;
+
+        let (src_file, hdr_file, src_code, hdr_code) = if lang == "c++" {
+            let src = format!("{}.cpp", name);
+            let hdr = format!("{}.hpp", name);
+            let src_code = format!(
+                "#include \"{hdr}\"\n#include <iostream>\n\nnamespace {name} {{\n\nvoid hello() {{\n\tstd::cout << \"Hello from {name}!\" << std::endl;\n}}\n\n}}  // namespace {name}\n",
+                hdr = hdr, name = name
+            );
+            let hdr_code = format!(
+                "#pragma once\n\nnamespace {name} {{\n\nvoid hello();\n\n}}  // namespace {name}\n",
+                name = name
+            );
+            (src, hdr, src_code, hdr_code)
+        } else {
+            let src = format!("{}.c", name);
+            let hdr = format!("{}.h", name);
+            let src_code = format!(
+                "#include \"{hdr}\"\n#include <stdio.h>\n\nvoid {name}_hello(void) {{\n\tprintf(\"Hello from {name}!\\n\");\n}}\n",
+                hdr = hdr, name = name
+            );
+            let hdr_code = format!(
+                "#pragma once\n\nvoid {name}_hello(void);\n",
+                name = name
+            );
+            (src, hdr, src_code, hdr_code)
+        };
+
+        fs::write(src_dir.join(&src_file), &src_code)?;
+        fs::write(inc_dir.join(&hdr_file), &hdr_code)?;
+        self.init_config(name, true, lang, Some(&src_file))?;
+
+        crab_status!("Created", "{} library `{}`", lang, name);
+
+        if git {
+            if self.is_git() {
+                std::env::set_current_dir(name)?;
+                Command::new("git").arg("init").stdout(Stdio::null()).stderr(Stdio::null()).status()?;
+                fs::write(".gitignore", format!("{}/\n", CONFIG.build_dir))?;
+            } else {
+                crab_print!(yellow, "Git is not installed on your computer!");
+            }
+        }
 
         Ok(())
     }
@@ -146,7 +205,7 @@ impl CrabProject {
 
         let mut file = fs::File::create(path_to_main)?;
         file.write_all(main_code.as_bytes())?;
-        self.init_config(&self.name, true, lang)?;
+        self.init_config(&self.name, true, lang, None)?;
 
         crab_status!("Created", "{} project `{}`", lang, &self.name);
 
@@ -263,7 +322,7 @@ impl CrabProject {
                 "c++"
             };
 
-            self.init_config(&project_name, false, lang)?;
+            self.init_config(&project_name, false, lang, None)?;
 
             crab_status!("Initialized", "project `{}`", project_name);
         }
