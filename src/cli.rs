@@ -7,6 +7,7 @@ use crab::config::{CrabUpdateINI, CONFIG};
 use crab::build::{CrabBuild, CrabLib};
 use crab::project::{CrabClean, CrabProject, CrabRun, CrabTree};
 use crab::module::CrabModule;
+use crab::fmt::CrabFmt;
 use std::io::ErrorKind;
 
 #[derive(Parser)]
@@ -117,6 +118,18 @@ enum Commands {
 
     /// Print the #include dependency tree
     Tree,
+
+    /// Format C/C++ sources with clang-format
+    #[command(alias = "f", after_help = "Examples:\n  crab fmt\n  crab fmt --check\n  crab fmt --style Google")]
+    Fmt {
+        /// Only check formatting; do not modify files (non-zero exit if changes are needed)
+        #[arg(long)]
+        check: bool,
+
+        /// clang-format style (e.g. LLVM, Google, Mozilla); default respects .clang-format
+        #[arg(long, value_name = "STYLE")]
+        style: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -383,6 +396,14 @@ pub fn run() -> std::io::Result<()> {
 
         Commands::Tree => {
             CrabTree::new().tree()?;
+        }
+
+        Commands::Fmt { check, style } => {
+            if !Path::new(CONFIG.config_file).exists() {
+                crab_err!(ErrorKind::Other, "The current directory is not a project");
+            }
+
+            CrabFmt::new().fmt(check, style.as_deref())?;
         }
     }
 
