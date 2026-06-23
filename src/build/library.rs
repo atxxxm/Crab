@@ -106,7 +106,8 @@ impl CrabLib {
             crab_print!(blue, "{} -> {}", &result[1], &path_to_obj);
 
             let mut args: Vec<String> = vec!["-c".to_string()];
-            if is_dynamic {
+            // -fPIC нужен только на Unix; на Windows он бессмысленен и вызывает предупреждение
+            if is_dynamic && !cfg!(windows) {
                 args.push("-fPIC".to_string());
             }
             args.push(result[1].clone());
@@ -159,7 +160,9 @@ impl CrabLib {
             let entry = entry?;
 
             let filename = entry.path().file_stem().unwrap().display().to_string();
-            let fmt_obj = format!("{}/{}/{}/lib{}.so", CONFIG.build_dir, CONFIG.library_dir, CONFIG.dynamic_dir, filename);
+            // имя по платформе: libX.so / libX.dylib / X.dll
+            let lib_file = format!("{}{}{}", std::env::consts::DLL_PREFIX, filename, std::env::consts::DLL_SUFFIX);
+            let fmt_obj = format!("{}/{}/{}/{}", CONFIG.build_dir, CONFIG.library_dir, CONFIG.dynamic_dir, lib_file);
             let entry_str = entry.path().display().to_string();
 
             cbf.output_wrapper(Command::new(&compiler).args(["-shared", &entry_str, "-o", &fmt_obj]).args(&user_link).output())?;

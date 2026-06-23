@@ -21,12 +21,12 @@ impl CrabRun {
     pub fn run(&self, flag: &str, args: &mut Vec<String>, gdb: bool, valgrind: bool) -> std::io::Result<()> {
         crab_log!("INFO", "RUN", "Start running an executable file");
         let config: CrabConfig = load_config(CONFIG.config_file)?;
-        let bin_name = config.project.name;
+        let exe_name = format!("{}{}", config.project.name, std::env::consts::EXE_SUFFIX);
 
         let path_to_bin = if flag == "debug" {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.debug_dir).join(CONFIG.binary_dir).join(bin_name)
+            PathBuf::from(CONFIG.build_dir).join(CONFIG.debug_dir).join(CONFIG.binary_dir).join(&exe_name)
         } else if flag == "release" {
-            PathBuf::from(CONFIG.build_dir).join(CONFIG.release_dir).join(CONFIG.binary_dir).join(bin_name)
+            PathBuf::from(CONFIG.build_dir).join(CONFIG.release_dir).join(CONFIG.binary_dir).join(&exe_name)
         } else {
             PathBuf::new()
         };
@@ -67,16 +67,17 @@ impl CrabRun {
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("Module {} not found", name)))?;
 
         let bin_name = module.output_name.as_ref().filter(|s| !s.is_empty()).cloned().unwrap_or_else(|| name.to_string());
+        let exe_name = format!("{}{}", bin_name, std::env::consts::EXE_SUFFIX);
 
         let path_to_mod_bin = match flag {
             "release" => {
                 PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(name)
-                .join(CONFIG.release_dir).join(CONFIG.binary_dir).join(bin_name)
+                .join(CONFIG.release_dir).join(CONFIG.binary_dir).join(&exe_name)
             }
 
             _ => {
                 PathBuf::from(CONFIG.build_dir).join(CONFIG.module_dir).join(name)
-                .join(CONFIG.debug_dir).join(CONFIG.binary_dir).join(bin_name)
+                .join(CONFIG.debug_dir).join(CONFIG.binary_dir).join(&exe_name)
             }
         };
 

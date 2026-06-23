@@ -214,10 +214,12 @@ impl CrabBuild {
         let link_flags = profile.link_flags();
         let user_link = config.build.link_args();
 
+        // EXE_SUFFIX = ".exe" на Windows, "" на Unix
+        let exe = std::env::consts::EXE_SUFFIX;
         let path_to_bin = if let (Some(m_name), Some(b_name)) = (mod_name, bin_name) {
-            format!("{}/{}/{}/{}/{}/{}", CONFIG.build_dir, CONFIG.module_dir, m_name, profile.dir(), CONFIG.binary_dir, b_name)
+            format!("{}/{}/{}/{}/{}/{}{}", CONFIG.build_dir, CONFIG.module_dir, m_name, profile.dir(), CONFIG.binary_dir, b_name, exe)
         } else {
-            format!("{}/{}/{}/{}", CONFIG.build_dir, profile.dir(), CONFIG.binary_dir, project_name)
+            format!("{}/{}/{}/{}{}", CONFIG.build_dir, profile.dir(), CONFIG.binary_dir, project_name, exe)
         };
 
         crab_log!("INFO", "BUILD", "Creating a path for an executable file: {}", path_to_bin);

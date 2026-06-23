@@ -70,7 +70,7 @@ impl CrabFind {
                     if path.is_dir() {
                         get_list_lib(&path, lib_name, libs)?;
                     } else if let Some(ext) = path.extension()
-                        && (ext == "a" || ext == "so") {
+                        && (ext == "a" || ext == "so" || ext == "dll" || ext == "dylib") {
                             for &p in &pref {
                                 if let Some(filename) = path.file_name()
                                     && filename.to_string_lossy().starts_with(&format!("{}{}", &p, lib_name)) {
@@ -337,7 +337,8 @@ impl CrabFind {
         }
 
         if let Ok(cpath) = env::var("CPATH") {
-            for path in cpath.split(":") {
+            let sep = if cfg!(windows) { ';' } else { ':' };
+            for path in cpath.split(sep) {
                 let full_path = Path::new(path).join(header);
 
                 if full_path.exists()
@@ -357,7 +358,8 @@ impl CrabFind {
 
         let lib_prefixes = ["lib", ""];
         let search_path: [&'static str; 4] = ["/usr/lib", "/usr/local/lib", "./lib", "/usr/lib64"];
-        let lib_extensions = [".a", ".so"];
+        // .a + платформенная динамическая (.so / .dll / .dylib)
+        let lib_extensions = [".a", std::env::consts::DLL_SUFFIX];
 
         for &sp in &search_path {
 
