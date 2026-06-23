@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use crab::crab_err;
 use crab::config::{CrabUpdateINI, CONFIG};
-use crab::build::{BuildProfile, CrabBuild, CrabCompDb, CrabLib, CrabTest};
+use crab::build::{BuildProfile, CrabBuild, CrabCheck, CrabCompDb, CrabLib, CrabTest};
 use crab::project::{CrabClean, CrabInstall, CrabProject, CrabRun, CrabTree, CrabWatch};
 use crab::module::CrabModule;
 use crab::fmt::CrabFmt;
@@ -151,6 +151,14 @@ enum Commands {
     /// Generate compile_commands.json for clangd/IDE autocomplete
     #[command(name = "compdb", visible_alias = "cc", after_help = "Examples:\n  crab compdb\n  crab compdb --release")]
     Compdb {
+        /// Use release flags instead of debug
+        #[arg(long, short = 'r')]
+        release: bool,
+    },
+
+    /// Syntax-check sources without compiling objects (faster than build)
+    #[command(alias = "ck", after_help = "Examples:\n  crab check\n  crab check -r")]
+    Check {
         /// Use release flags instead of debug
         #[arg(long, short = 'r')]
         release: bool,
@@ -519,6 +527,14 @@ pub fn run() -> std::io::Result<()> {
             }
 
             CrabTest::new().run_tests(filter.as_deref(), release)?;
+        }
+
+        Commands::Check { release } => {
+            if !Path::new(CONFIG.config_file).exists() {
+                crab_err!(ErrorKind::Other, "The current directory is not a project");
+            }
+
+            CrabCheck::new().check(release)?;
         }
 
         Commands::Fmt { check, style } => {
