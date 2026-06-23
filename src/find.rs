@@ -136,24 +136,40 @@ impl CrabFind {
         Ok(())
     }
 
-    // Проверка существуют ли файлы с путями и названиями библиотек и не пустые ли они
-    fn is_empty_include_files(&self) -> std::io::Result<bool> {
-        let path_to_include_path = PathBuf::from(CONFIG.build_dir).join(CONFIG.data_dir).join(CONFIG.include_file);
-        let path_to_include_lib = PathBuf::from(CONFIG.build_dir).join(CONFIG.data_dir).join(CONFIG.lib_file);
-        
-        let is_include_path = if let Ok(metadata) = fs::metadata(path_to_include_path) {
-            metadata.is_file() && metadata.len() > 0
-        } else {
-            false
+    // Свежесть кэша детекта: оба data-файла существуют, непусты и новее всех
+    // переданных файлов (исходники/заголовки/конфиг). Иначе нужен передетект.
+    fn is_cache_fresh(&self, files: &[String]) -> bool {
+        let inc = PathBuf::from(CONFIG.build_dir).join(CONFIG.data_dir).join(CONFIG.include_file);
+        let lib = PathBuf::from(CONFIG.build_dir).join(CONFIG.data_dir).join(CONFIG.lib_file);
+
+        let (inc_m, lib_m) = match (fs::metadata(&inc), fs::metadata(&lib)) {
+            (Ok(a), Ok(b)) if a.len() > 0 && b.len() > 0 => (a, b),
+            _ => return false,
         };
 
-        let is_include_lib = if let Ok(metadata) = fs::metadata(path_to_include_lib) {
-            metadata.is_file() && metadata.len() > 0
-        } else {
-            false
+        // самый старый из двух data-файлов
+        let data_time = match (inc_m.modified(), lib_m.modified()) {
+            (Ok(a), Ok(b)) => if a < b { a } else { b },
+            _ => return false,
         };
 
-        Ok(is_include_path && is_include_lib)
+        for f in files {
+            if let Ok(m) = fs::metadata(f)
+                && let Ok(t) = m.modified()
+                && t > data_time {
+                    return false;
+                }
+        }
+
+        true
+    }
+
+    // Удаление устаревших data-файлов детекта (когда сторонних библиотек не осталось)
+    fn clear_cache(&self) {
+        let inc = PathBuf::from(CONFIG.build_dir).join(CONFIG.data_dir).join(CONFIG.include_file);
+        let lib = PathBuf::from(CONFIG.build_dir).join(CONFIG.data_dir).join(CONFIG.lib_file);
+        let _ = fs::remove_file(inc);
+        let _ = fs::remove_file(lib);
     }
 
     // Рекурсивный сбор файлов по указаному расширению
@@ -504,15 +520,11 @@ impl CrabFind {
     pub fn parsing_include(&self) -> std::io::Result<bool> {
         crab_log!("INFO", "FIND", "Starting to build third-party libraries");
 
-        if self.is_empty_include_files()? {
-            return Ok(true);
-        }
-
         let path = Path::new(&self.path);
 
         let config: CrabConfig = load_config(CONFIG.config_file)?;
         let lang = config.settings.lang;
-        
+
         let mut source: Vec<String> = Vec::new();
         let mut header: Vec<String> = Vec::new();
         let mut sys_includes: Vec<String> = Vec::new();
@@ -525,18 +537,29 @@ impl CrabFind {
             Self::collect_file_with_extension(path, "hpp", &mut header)?;
         }
 
+        // Кэш свеж (data-файлы новее всех исходников/заголовков/конфига) — детект не нужен
+        let mut watched = source.clone();
+        watched.extend(header.clone());
+        watched.push(CONFIG.config_file.to_string());
+        if self.is_cache_fresh(&watched) {
+            crab_log!("INFO", "FIND", "Third-party cache is up to date");
+            return Ok(true);
+        }
+
         crab_log!("INFO", "FIND", "Getting system and third-party libraries");
-        for c in source {
+        for c in &source {
             self.get_include(c.as_str(), &mut sys_includes)?;
         }
 
-        for h in header {
+        for h in &header {
             self.get_include(h.as_str(), &mut sys_includes)?;
         }
 
         self.delete_sys_include(&mut sys_includes)?;
 
         if sys_includes.is_empty() {
+            // сторонних библиотек нет — убираем устаревший кэш, чтобы он не цеплялся
+            self.clear_cache();
             return Ok(false);
         }
 
