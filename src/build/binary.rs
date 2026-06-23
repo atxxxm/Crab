@@ -20,7 +20,7 @@ pub enum BuildProfile {
 
 impl BuildProfile {
     // Имя каталога режима ("debug" | "release")
-    fn dir(&self) -> &'static str {
+    pub(crate) fn dir(&self) -> &'static str {
         match self {
             BuildProfile::Debug => CONFIG.debug_dir,
             BuildProfile::Release => CONFIG.release_dir,
@@ -28,7 +28,7 @@ impl BuildProfile {
     }
 
     // Флаги компиляции в объектный файл
-    fn compile_flags(&self) -> &'static [&'static str] {
+    pub(crate) fn compile_flags(&self) -> &'static [&'static str] {
         match self {
             BuildProfile::Debug => &["-g", "-O0", "-Wall", "-Wextra", "-pedantic"],
             BuildProfile::Release => &["-O2", "-flto"],

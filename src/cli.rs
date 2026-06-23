@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use crab::crab_err;
 use crab::config::{CrabUpdateINI, CONFIG};
-use crab::build::{CrabBuild, CrabLib};
+use crab::build::{BuildProfile, CrabBuild, CrabCompDb, CrabLib};
 use crab::project::{CrabClean, CrabProject, CrabRun, CrabTree};
 use crab::module::CrabModule;
 use crab::fmt::CrabFmt;
@@ -118,6 +118,14 @@ enum Commands {
 
     /// Print the #include dependency tree
     Tree,
+
+    /// Generate compile_commands.json for clangd/IDE autocomplete
+    #[command(name = "compdb", visible_alias = "cc", after_help = "Examples:\n  crab compdb\n  crab compdb --release")]
+    Compdb {
+        /// Use release flags instead of debug
+        #[arg(long, short = 'r')]
+        release: bool,
+    },
 
     /// Format C/C++ sources with clang-format
     #[command(alias = "f", after_help = "Examples:\n  crab fmt\n  crab fmt --check\n  crab fmt --style Google")]
@@ -396,6 +404,15 @@ pub fn run() -> std::io::Result<()> {
 
         Commands::Tree => {
             CrabTree::new().tree()?;
+        }
+
+        Commands::Compdb { release } => {
+            if !Path::new(CONFIG.config_file).exists() {
+                crab_err!(ErrorKind::Other, "The current directory is not a project");
+            }
+
+            let profile = if release { BuildProfile::Release } else { BuildProfile::Debug };
+            CrabCompDb::new().generate(profile)?;
         }
 
         Commands::Fmt { check, style } => {
