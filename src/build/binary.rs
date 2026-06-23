@@ -260,12 +260,6 @@ impl CrabBuild {
         let source_dir = config.settings.source_dir;
         let path = Path::new(&source_dir);
 
-        if is_module {
-            crab_status!("Compiling", "module {} [{}]", mod_name.unwrap(), flag);
-        } else {
-            crab_status!("Compiling", "{} v{} [{}]", config.project.name, config.project.version, flag);
-        }
-
         let mut source: Vec<String>;
 
         if is_module {
@@ -326,6 +320,22 @@ impl CrabBuild {
         let path_obj_data = base.join(CONFIG.object_data);
 
         let changed = crb.get_changed_files(&path_obj_data, &path_dep, &source, &lang)?;
+
+        // Тихий режим: если ничего не изменилось и бинарь на месте — только Finished
+        let exe = std::env::consts::EXE_SUFFIX;
+        let bin_disp = if is_module { bin_name.unwrap() } else { config.project.name.as_str() };
+        let bin_path = base.join(CONFIG.binary_dir).join(format!("{}{}", bin_disp, exe));
+
+        if changed.is_empty() && bin_path.exists() {
+            crab_status!("Finished", "{} target in {:.2}s", flag, start.elapsed().as_secs_f64());
+            return Ok(());
+        }
+
+        if is_module {
+            crab_status!("Compiling", "module {} [{}]", mod_name.unwrap(), flag);
+        } else {
+            crab_status!("Compiling", "{} v{} [{}]", config.project.name, config.project.version, flag);
+        }
 
         self.compile_to_object(profile, &path_dep, &path_obj, find, &changed)?;
 
